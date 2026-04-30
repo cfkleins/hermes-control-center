@@ -31,13 +31,37 @@ body {
 
 .clock-wrap {
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: 0.95rem;
   white-space: nowrap;
   padding-top: 0.1rem;
 }
 
 h1 { margin: 0; font-size: 1.4rem; }
 .subtitle { margin: 0.35rem 0 0; color: var(--muted); }
+
+.tabs {
+  display: flex;
+  gap: 0.55rem;
+  padding: 0.7rem 1rem 0;
+}
+
+.tab-btn {
+  background: #0f1d3b;
+  border-color: #334f85;
+}
+
+.tab-btn.active {
+  background: #2a63bd;
+  border-color: #4b85df;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: grid;
+}
 
 .layout {
   display: grid;

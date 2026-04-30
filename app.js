@@ -9,6 +9,8 @@ let activeOperator = localStorage.getItem("ops_ui_operator") || "";
 let timelineIntervalId = null;
 
 const headerDatetime = document.getElementById("header-datetime");
+const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
+const tabSections = Array.from(document.querySelectorAll(".tab-content"));
 
 function updateHeaderDatetime() {
   if (!headerDatetime) return;
@@ -23,6 +25,19 @@ function updateHeaderDatetime() {
 
 updateHeaderDatetime();
 setInterval(updateHeaderDatetime, 1000);
+
+function activateTab(tabName) {
+  tabButtons.forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === tabName);
+  });
+  tabSections.forEach((section) => {
+    section.classList.toggle("active", section.dataset.tabSection === tabName);
+  });
+}
+
+tabButtons.forEach((btn) => {
+  btn.addEventListener("click", () => activateTab(btn.dataset.tab || "operations"));
+});
 
 const authStatus = document.getElementById("auth-status");
 const activeOperatorEl = document.getElementById("active-operator");
