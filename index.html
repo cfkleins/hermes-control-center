@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Custom Ops UI</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Custom Web UI</h1>
+        <p class="subtitle">Operational Dashboard · Prompting · Voice Control</p>
+      </div>
+      <div class="clock-wrap">
+        <span id="header-datetime">--</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card" id="auth">
+        <h2>Operator Session</h2>
+        <div class="settings-grid">
+          <label for="username-input">Username</label>
+          <input id="username-input" type="text" placeholder="admin" />
+
+          <label for="pin-input">PIN</label>
+          <input id="pin-input" type="password" placeholder="1234" />
+        </div>
+        <div class="row">
+          <button id="login-btn">Login</button>
+          <button id="logout-btn" class="ghost">Logout</button>
+        </div>
+        <p><strong>Active Operator:</strong> <span id="active-operator">(not logged in)</span></p>
+        <p id="auth-status" class="status">Please log in.</p>
+      </section>
+
+      <section class="card" id="dashboard">
+        <h2>Operational Dashboard</h2>
+        <div class="kpi-grid">
+          <article class="kpi">
+            <h3>Agent Status</h3>
+            <p class="value online" id="agent-status">Online</p>
+          </article>
+          <article class="kpi">
+            <h3>Tasks Running</h3>
+            <p class="value" id="tasks-running">3</p>
+          </article>
+          <article class="kpi">
+            <h3>Avg. Response</h3>
+            <p class="value" id="avg-response">1.2s</p>
+          </article>
+          <article class="kpi">
+            <h3>Error Rate</h3>
+            <p class="value" id="error-rate">0.4%</p>
+          </article>
+        </div>
+        <button id="refresh-metrics">Refresh Metrics</button>
+      </section>
+
+      <section class="card" id="prompting">
+        <h2>Prompting Section</h2>
+        <label for="prompt-input">Prompt</label>
+        <textarea id="prompt-input" rows="7" placeholder="Type your prompt here..."></textarea>
+        <div class="row">
+          <button id="send-prompt">Send Prompt</button>
+          <button id="clear-prompt" class="ghost">Clear</button>
+        </div>
+        <p id="prompt-status" class="status">No prompt sent yet.</p>
+        <h3>Prompt History</h3>
+        <ul id="prompt-history" class="history-list">
+          <li class="status small">No prompt runs yet.</li>
+        </ul>
+      </section>
+
+      <section class="card" id="voice">
+        <h2>Voice Control Section</h2>
+        <div class="row">
+          <button id="start-listening">Start Listening</button>
+          <button id="stop-listening" class="ghost">Stop</button>
+        </div>
+        <p><strong>Mic State:</strong> <span id="mic-state">Idle</span></p>
+        <p><strong>Transcript:</strong> <span id="transcript">(waiting)</span></p>
+        <p><strong>Last Action:</strong> <span id="voice-last-action">(none)</span></p>
+        <p class="status small">Starter mode uses simulated transcript events.</p>
+        <h3>Voice Event Log</h3>
+        <ul id="voice-events" class="history-list">
+          <li class="status small">No voice events yet.</li>
+        </ul>
+      </section>
+
+      <section class="card" id="timeline">
+        <h2>Session Timeline</h2>
+        <div class="row">
+          <label for="timeline-filter">Filter</label>
+          <select id="timeline-filter">
+            <option value="all">All</option>
+            <option value="metric">Metrics</option>
+            <option value="prompt">Prompts</option>
+            <option value="voice">Voice</option>
+            <option value="settings">Settings</option>
+          </select>
+          <button id="refresh-timeline" class="ghost">Refresh Timeline</button>
+        </div>
+        <ul id="timeline-events" class="history-list">
+          <li class="status small">No timeline events yet.</li>
+        </ul>
+      </section>
+
+      <section class="card" id="settings">
+        <h2>Settings</h2>
+        <div class="settings-grid">
+          <label for="provider-input">Provider</label>
+          <input id="provider-input" type="text" placeholder="openai" />
+
+          <label for="model-input">Model</label>
+          <input id="model-input" type="text" placeholder="gpt-5.3-codex" />
+
+          <label for="voice-profile-select">Voice Profile</label>
+          <select id="voice-profile-select">
+            <option value="quality">quality</option>
+            <option value="low-latency">low-latency</option>
+          </select>
+
+          <label for="timeline-refresh-input">Timeline Refresh (seconds)</label>
+          <input id="timeline-refresh-input" type="number" min="2" max="60" step="1" />
+        </div>
+        <div class="row">
+          <button id="save-settings">Save Settings</button>
+          <button id="reload-settings" class="ghost">Reload Settings</button>
+        </div>
+        <p id="settings-status" class="status">Settings not loaded yet.</p>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

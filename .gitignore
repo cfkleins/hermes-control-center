@@ -1,0 +1,14 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local runtime/config data
+settings.json
+operators.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

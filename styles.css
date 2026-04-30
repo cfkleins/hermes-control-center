@@ -1,0 +1,143 @@
+:root {
+  --bg: #0b1020;
+  --panel: #131a2b;
+  --line: #26314d;
+  --text: #e6edff;
+  --muted: #9fb0d6;
+  --accent: #65b7ff;
+  --ok: #53d18a;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: Inter, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.topbar {
+  padding: 1.2rem 1.4rem;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  backdrop-filter: blur(8px);
+  background: rgba(11, 16, 32, 0.85);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.clock-wrap {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  padding-top: 0.1rem;
+}
+
+h1 { margin: 0; font-size: 1.4rem; }
+.subtitle { margin: 0.35rem 0 0; color: var(--muted); }
+
+.layout {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+
+.kpi {
+  background: #0e1527;
+  border: 1px solid #243053;
+  border-radius: 12px;
+  padding: 0.7rem;
+}
+
+.kpi h3 {
+  font-size: 0.85rem;
+  margin: 0 0 0.45rem;
+  color: var(--muted);
+}
+
+.value { font-size: 1.2rem; font-weight: 700; margin: 0; }
+.online { color: var(--ok); }
+
+textarea {
+  width: 100%;
+  margin-top: 0.5rem;
+  margin-bottom: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #33436a;
+  background: #091022;
+  color: var(--text);
+  padding: 0.7rem;
+}
+
+input,
+select {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #33436a;
+  background: #091022;
+  color: var(--text);
+  padding: 0.55rem 0.65rem;
+}
+
+button {
+  border: 1px solid #3f73be;
+  background: #1a4f9f;
+  color: #fff;
+  border-radius: 10px;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+button.ghost {
+  background: transparent;
+  border-color: #486199;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.status { color: var(--muted); margin-top: 0.75rem; }
+.small { font-size: 0.9rem; }
+
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.history-list li {
+  border: 1px solid #2e3f67;
+  border-radius: 10px;
+  padding: 0.5rem 0.65rem;
+  background: #0d1425;
+  font-size: 0.9rem;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
