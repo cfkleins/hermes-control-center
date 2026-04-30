@@ -141,6 +141,15 @@ h1 { margin: 0; font-size: 1.4rem; }
   text-overflow: ellipsis;
 }
 
+.trend-sparkline {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+  letter-spacing: 0.03em;
+  color: #7ec3ff;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
 textarea {
   width: 100%;
   margin-top: 0.5rem;

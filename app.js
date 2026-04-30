@@ -99,6 +99,9 @@ const errorRate = document.getElementById("error-rate");
 const trendTasks = document.getElementById("trend-tasks");
 const trendResponse = document.getElementById("trend-response");
 const trendError = document.getElementById("trend-error");
+const trendTasksSpark = document.getElementById("trend-tasks-spark");
+const trendResponseSpark = document.getElementById("trend-response-spark");
+const trendErrorSpark = document.getElementById("trend-error-spark");
 
 const promptInput = document.getElementById("prompt-input");
 const sendPrompt = document.getElementById("send-prompt");
@@ -198,6 +201,24 @@ async function login() {
 loginBtn.addEventListener("click", login);
 logoutBtn.addEventListener("click", logout);
 
+function sparkline(history) {
+  if (!history.length) return "--";
+  const bars = "▁▂▃▄▅▆▇█";
+  const nums = history.map((v) => Number(v));
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  if (max === min) {
+    return bars[3].repeat(nums.length);
+  }
+  return nums
+    .map((v) => {
+      const normalized = (v - min) / (max - min);
+      const idx = Math.max(0, Math.min(bars.length - 1, Math.round(normalized * (bars.length - 1))));
+      return bars[idx];
+    })
+    .join("");
+}
+
 function pushTrend(history, value, max = 12) {
   history.push(value);
   if (history.length > max) history.shift();
@@ -216,6 +237,10 @@ function updateKpiTrendStrip(data) {
   if (trendTasks) trendTasks.textContent = renderTrend(trendHistory.tasks, 0);
   if (trendResponse) trendResponse.textContent = renderTrend(trendHistory.response, 2);
   if (trendError) trendError.textContent = renderTrend(trendHistory.error, 2);
+
+  if (trendTasksSpark) trendTasksSpark.textContent = sparkline(trendHistory.tasks);
+  if (trendResponseSpark) trendResponseSpark.textContent = sparkline(trendHistory.response);
+  if (trendErrorSpark) trendErrorSpark.textContent = sparkline(trendHistory.error);
 }
 
 async function refreshMetrics() {
