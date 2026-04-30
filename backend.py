@@ -32,6 +32,7 @@ prompt_id_counter = count(1)
 voice_id_counter = count(1)
 timeline_id_counter = count(1)
 alert_id_counter = count(1)
+template_id_counter = count(1)
 
 operator_state: dict[str, dict] = {}
 
@@ -58,6 +59,11 @@ class SettingsPayload(BaseModel):
 
 class AlertActionPayload(BaseModel):
     action: str = Field(pattern="^(ack|snooze|resolve)$")
+
+
+class PromptTemplatePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(min_length=1, max_length=4000)
 
 
 app.add_middleware(
@@ -105,6 +111,7 @@ def _ensure_operator_state(username: str) -> dict:
             "timeline": [],
             "alerts": [],
             "alert_actions": {},
+            "prompt_templates": [],
             "settings": _load_global_settings(),
         }
     return operator_state[username]
@@ -258,6 +265,29 @@ def _apply_alert_action(username: str, alert_id: int, action: str) -> dict:
     }
 
 
+def _create_prompt_template(username: str, name: str, prompt: str) -> dict:
+    state = _ensure_operator_state(username)
+    entry = {
+        "id": next(template_id_counter),
+        "name": name.strip(),
+        "prompt": prompt.strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    state["prompt_templates"].insert(0, entry)
+    del state["prompt_templates"][25:]
+    _add_timeline_event(username, "prompt", f"Template created: {entry['name']}", {"template_id": entry["id"]})
+    return entry
+
+
+def _delete_prompt_template(username: str, template_id: int) -> None:
+    state = _ensure_operator_state(username)
+    before = len(state["prompt_templates"])
+    state["prompt_templates"] = [t for t in state["prompt_templates"] if t["id"] != template_id]
+    if len(state["prompt_templates"]) == before:
+        raise HTTPException(status_code=404, detail="Template not found")
+    _add_timeline_event(username, "prompt", f"Template deleted: #{template_id}", {"template_id": template_id})
+
+
 def _run_voice_command(username: str, transcript_text: str) -> dict:
     state = _ensure_operator_state(username)
     normalized = transcript_text.strip()
@@ -372,6 +402,29 @@ def get_prompt_history(limit: int = 10, x_session_token: str | None = Header(def
     state = _ensure_operator_state(username)
     safe_limit = max(1, min(limit, 20))
     return {"items": state["prompt_history"][:safe_limit]}
+
+
+@app.get("/api/prompt-templates")
+def get_prompt_templates(limit: int = 25, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    state = _ensure_operator_state(username)
+    safe_limit = max(1, min(limit, 25))
+    return {"items": state["prompt_templates"][:safe_limit]}
+
+
+@app.post("/api/prompt-templates")
+def create_prompt_template(
+    payload: PromptTemplatePayload, x_session_token: str | None = Header(default=None)
+):
+    username = _require_operator(x_session_token)
+    return _create_prompt_template(username, payload.name, payload.prompt)
+
+
+@app.delete("/api/prompt-templates/{template_id}")
+def delete_prompt_template(template_id: int, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    _delete_prompt_template(username, template_id)
+    return {"ok": True}
 
 
 @app.post("/api/voice/command")

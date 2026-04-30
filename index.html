@@ -67,6 +67,20 @@
           <button id="clear-prompt" class="ghost">Clear</button>
         </div>
         <p id="prompt-status" class="status">No prompt sent yet.</p>
+        <h3>Prompt Templates</h3>
+        <div class="settings-grid">
+          <label for="template-name-input">Template Name</label>
+          <input id="template-name-input" type="text" placeholder="Incident Summary" />
+          <label for="template-prompt-input">Template Prompt</label>
+          <textarea id="template-prompt-input" rows="4" placeholder="Write a concise incident summary with root cause and next actions."></textarea>
+        </div>
+        <div class="row">
+          <button id="save-template">Save Template</button>
+          <button id="refresh-templates" class="ghost">Refresh Templates</button>
+        </div>
+        <ul id="template-list" class="history-list">
+          <li class="status small">No templates yet.</li>
+        </ul>
         <h3>Prompt History</h3>
         <ul id="prompt-history" class="history-list">
           <li class="status small">No prompt runs yet.</li>

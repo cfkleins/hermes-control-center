@@ -41,6 +41,11 @@ const sendPrompt = document.getElementById("send-prompt");
 const clearPrompt = document.getElementById("clear-prompt");
 const promptStatus = document.getElementById("prompt-status");
 const promptHistory = document.getElementById("prompt-history");
+const templateNameInput = document.getElementById("template-name-input");
+const templatePromptInput = document.getElementById("template-prompt-input");
+const saveTemplateBtn = document.getElementById("save-template");
+const refreshTemplatesBtn = document.getElementById("refresh-templates");
+const templateList = document.getElementById("template-list");
 
 const startListening = document.getElementById("start-listening");
 const stopListening = document.getElementById("stop-listening");
@@ -169,6 +174,52 @@ async function loadPromptHistory() {
   }
 }
 
+function renderTemplates(items) {
+  templateList.innerHTML = items.length
+    ? items
+        .map(
+          (item) => `<li>
+            <strong>${item.name}</strong><br>
+            ${item.prompt.slice(0, 140)}
+            <div class="row alert-actions">
+              <button class="ghost" data-template-use="${item.id}">Use</button>
+              <button class="ghost" data-template-delete="${item.id}">Delete</button>
+            </div>
+          </li>`
+        )
+        .join("")
+    : '<li class="status small">No templates yet.</li>';
+}
+
+async function loadTemplates() {
+  try {
+    const res = await authFetch("/api/prompt-templates?limit=25");
+    const data = await res.json();
+    renderTemplates(data.items || []);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function saveTemplate() {
+  const name = templateNameInput.value.trim();
+  const prompt = templatePromptInput.value.trim();
+  if (!name || !prompt) return;
+  try {
+    await authFetch("/api/prompt-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, prompt })
+    });
+    templateNameInput.value = "";
+    templatePromptInput.value = "";
+    await loadTemplates();
+    await loadTimeline();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 sendPrompt.addEventListener("click", async () => {
   const value = promptInput.value.trim();
   if (!value) return (promptStatus.textContent = "Please enter a prompt first.");
@@ -191,6 +242,37 @@ sendPrompt.addEventListener("click", async () => {
 clearPrompt.addEventListener("click", () => {
   promptInput.value = "";
   promptStatus.textContent = "Prompt cleared.";
+});
+
+saveTemplateBtn.addEventListener("click", saveTemplate);
+refreshTemplatesBtn.addEventListener("click", loadTemplates);
+templateList.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const useId = target.getAttribute("data-template-use");
+  const deleteId = target.getAttribute("data-template-delete");
+  if (useId) {
+    try {
+      const res = await authFetch("/api/prompt-templates?limit=25");
+      const data = await res.json();
+      const match = (data.items || []).find((item) => item.id === Number(useId));
+      if (match) {
+        promptInput.value = match.prompt;
+        promptStatus.textContent = `Template loaded: ${match.name}`;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  if (deleteId) {
+    try {
+      await authFetch(`/api/prompt-templates/${deleteId}`, { method: "DELETE" });
+      await loadTemplates();
+      await loadTimeline();
+    } catch (err) {
+      console.error(err);
+    }
+  }
 });
 
 function renderVoiceEvents(items) {
@@ -393,6 +475,7 @@ reloadSettingsBtn.addEventListener("click", loadSettings);
 async function bootstrapData() {
   await refreshMetrics();
   await loadPromptHistory();
+  await loadTemplates();
   await loadVoiceEvents();
   await loadAlerts();
   await loadTimeline();
