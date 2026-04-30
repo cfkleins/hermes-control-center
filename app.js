@@ -7,6 +7,11 @@ const transcriptSamples = [
 let sessionToken = localStorage.getItem("ops_ui_token") || "";
 let activeOperator = localStorage.getItem("ops_ui_operator") || "";
 let timelineIntervalId = null;
+const trendHistory = {
+  tasks: [],
+  response: [],
+  error: []
+};
 
 const headerDatetime = document.getElementById("header-datetime");
 const activeTabLabel = document.getElementById("active-tab-label");
@@ -91,6 +96,9 @@ const refreshBtn = document.getElementById("refresh-metrics");
 const tasksRunning = document.getElementById("tasks-running");
 const avgResponse = document.getElementById("avg-response");
 const errorRate = document.getElementById("error-rate");
+const trendTasks = document.getElementById("trend-tasks");
+const trendResponse = document.getElementById("trend-response");
+const trendError = document.getElementById("trend-error");
 
 const promptInput = document.getElementById("prompt-input");
 const sendPrompt = document.getElementById("send-prompt");
@@ -190,6 +198,26 @@ async function login() {
 loginBtn.addEventListener("click", login);
 logoutBtn.addEventListener("click", logout);
 
+function pushTrend(history, value, max = 12) {
+  history.push(value);
+  if (history.length > max) history.shift();
+}
+
+function renderTrend(history, decimals = 0) {
+  if (!history.length) return "--";
+  return history.map((value) => Number(value).toFixed(decimals)).join(" · ");
+}
+
+function updateKpiTrendStrip(data) {
+  pushTrend(trendHistory.tasks, Number(data.tasks_running || 0));
+  pushTrend(trendHistory.response, Number(data.avg_response_seconds || 0));
+  pushTrend(trendHistory.error, Number(data.error_rate_percent || 0));
+
+  if (trendTasks) trendTasks.textContent = renderTrend(trendHistory.tasks, 0);
+  if (trendResponse) trendResponse.textContent = renderTrend(trendHistory.response, 2);
+  if (trendError) trendError.textContent = renderTrend(trendHistory.error, 2);
+}
+
 async function refreshMetrics() {
   try {
     const res = await authFetch("/api/metrics");
@@ -198,6 +226,7 @@ async function refreshMetrics() {
     avgResponse.textContent = `${data.avg_response_seconds}s`;
     errorRate.textContent = `${data.error_rate_percent}%`;
     document.getElementById("agent-status").textContent = `${data.agent_status} (${data.operator})`;
+    updateKpiTrendStrip(data);
   } catch (err) {
     console.error(err);
   }
