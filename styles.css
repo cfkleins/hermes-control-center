@@ -55,19 +55,18 @@ h1 { margin: 0; font-size: 1.4rem; }
   border-color: #4b85df;
 }
 
-.tab-content {
-  display: none;
-}
-
-.tab-content.active {
-  display: grid;
-}
-
 .layout {
-  display: grid;
   gap: 1rem;
   padding: 1rem;
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+}
+
+.layout.tab-content {
+  display: none;
+}
+
+.layout.tab-content.active {
+  display: grid;
 }
 
 .card {
