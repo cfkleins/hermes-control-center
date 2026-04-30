@@ -9,6 +9,7 @@ let activeOperator = localStorage.getItem("ops_ui_operator") || "";
 let timelineIntervalId = null;
 
 const headerDatetime = document.getElementById("header-datetime");
+const activeTabLabel = document.getElementById("active-tab-label");
 const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
 const tabSections = Array.from(document.querySelectorAll(".tab-content"));
 
@@ -31,6 +32,10 @@ function normalizeTabName(tabName) {
   return allowed.has(tabName) ? tabName : "operations";
 }
 
+function activeTabDisplayName(tabName) {
+  return tabName === "prompt-voice" ? "Prompt and Voice" : "Operations";
+}
+
 function activateTab(tabName, { persist = true } = {}) {
   const normalized = normalizeTabName(tabName);
   tabButtons.forEach((btn) => {
@@ -41,6 +46,9 @@ function activateTab(tabName, { persist = true } = {}) {
   tabSections.forEach((section) => {
     section.classList.toggle("active", section.dataset.tabSection === normalized);
   });
+  if (activeTabLabel) {
+    activeTabLabel.textContent = `Active Section: ${activeTabDisplayName(normalized)}`;
+  }
   if (persist) {
     localStorage.setItem("ops_ui_active_tab", normalized);
     history.replaceState(null, "", `#${normalized}`);
@@ -58,6 +66,18 @@ activateTab(initialTabFromHash || initialTabFromStorage, { persist: false });
 window.addEventListener("hashchange", () => {
   const tab = (window.location.hash || "").replace("#", "");
   if (tab) activateTab(tab);
+});
+
+window.addEventListener("keydown", (event) => {
+  const tagName = document.activeElement?.tagName || "";
+  const isTypingTarget = ["INPUT", "TEXTAREA", "SELECT"].includes(tagName);
+  if (isTypingTarget || event.ctrlKey || event.metaKey || event.altKey) return;
+
+  if (event.key === "1") {
+    activateTab("operations");
+  } else if (event.key === "2") {
+    activateTab("prompt-voice");
+  }
 });
 
 const authStatus = document.getElementById("auth-status");

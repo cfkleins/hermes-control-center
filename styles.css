@@ -39,6 +39,19 @@ body {
 h1 { margin: 0; font-size: 1.4rem; }
 .subtitle { margin: 0.35rem 0 0; color: var(--muted); }
 
+#active-tab-label {
+  margin-top: 0.45rem;
+  color: #b7c8eb;
+}
+
+.tabs {
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-btn.active {
+  box-shadow: inset 0 -2px 0 #9ec7ff;
+}
+
 .tabs {
   display: flex;
   gap: 0.55rem;
