@@ -135,6 +135,20 @@ button.ghost {
   font-size: 0.9rem;
 }
 
+.history-list li.alert-info {
+  border-color: #315f93;
+}
+
+.history-list li.alert-warning {
+  border-color: #9a7a28;
+  background: #20180a;
+}
+
+.history-list li.alert-critical {
+  border-color: #a23838;
+  background: #250f12;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: 1fr;

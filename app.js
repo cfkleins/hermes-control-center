@@ -53,6 +53,9 @@ const timelineFilter = document.getElementById("timeline-filter");
 const refreshTimelineBtn = document.getElementById("refresh-timeline");
 const timelineEvents = document.getElementById("timeline-events");
 
+const refreshAlertsBtn = document.getElementById("refresh-alerts");
+const alertsList = document.getElementById("alerts-list");
+
 const providerInput = document.getElementById("provider-input");
 const modelInput = document.getElementById("model-input");
 const voiceProfileSelect = document.getElementById("voice-profile-select");
@@ -141,6 +144,7 @@ async function refreshMetrics() {
 
 refreshBtn.addEventListener("click", async () => {
   await refreshMetrics();
+  await loadAlerts();
   await loadTimeline();
 });
 
@@ -269,6 +273,27 @@ function renderTimeline(items) {
     : '<li class="status small">No timeline events yet.</li>';
 }
 
+function renderAlerts(items) {
+  alertsList.innerHTML = items.length
+    ? items
+        .map((item) => {
+          const severityClass = `alert-${item.severity}`;
+          return `<li class="${severityClass}"><strong>${item.severity.toUpperCase()}</strong> · ${item.message}<br><span class="status small">${item.code}</span></li>`;
+        })
+        .join("")
+    : '<li class="status small">No alerts yet.</li>';
+}
+
+async function loadAlerts() {
+  try {
+    const res = await authFetch("/api/alerts?limit=6");
+    const data = await res.json();
+    renderAlerts(data.items || []);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
 async function loadTimeline() {
   try {
     const kind = timelineFilter ? timelineFilter.value : "all";
@@ -287,6 +312,7 @@ function startTimelineAutoRefresh(seconds) {
 
 timelineFilter.addEventListener("change", loadTimeline);
 refreshTimelineBtn.addEventListener("click", loadTimeline);
+refreshAlertsBtn.addEventListener("click", loadAlerts);
 
 function applySettingsToUi(settings) {
   providerInput.value = settings.provider || "openai";
@@ -337,6 +363,7 @@ async function bootstrapData() {
   await refreshMetrics();
   await loadPromptHistory();
   await loadVoiceEvents();
+  await loadAlerts();
   await loadTimeline();
   await loadSettings();
 }

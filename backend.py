@@ -31,6 +31,7 @@ sessions: dict[str, str] = {}
 prompt_id_counter = count(1)
 voice_id_counter = count(1)
 timeline_id_counter = count(1)
+alert_id_counter = count(1)
 
 operator_state: dict[str, dict] = {}
 
@@ -98,6 +99,7 @@ def _ensure_operator_state(username: str) -> dict:
             "prompt_history": [],
             "voice_events": [],
             "timeline": [],
+            "alerts": [],
             "settings": _load_global_settings(),
         }
     return operator_state[username]
@@ -157,6 +159,62 @@ def _run_prompt(username: str, prompt_text: str, max_retries: int = 2) -> dict:
         {"attempts": attempt, "preview": prompt_text[:80]},
     )
     return entry
+
+
+def _upsert_alert(state: dict, severity: str, code: str, message: str) -> None:
+    for alert in state["alerts"]:
+        if alert["code"] == code:
+            alert.update(
+                {
+                    "severity": severity,
+                    "message": message,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            return
+    state["alerts"].insert(
+        0,
+        {
+            "id": next(alert_id_counter),
+            "severity": severity,
+            "code": code,
+            "message": message,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
+def _refresh_alerts(username: str, metrics: dict) -> list[dict]:
+    state = _ensure_operator_state(username)
+    state["alerts"] = []
+
+    if metrics["tasks_running"] >= 5:
+        _upsert_alert(
+            state,
+            "warning",
+            "task_pressure",
+            f"High active task load ({metrics['tasks_running']})",
+        )
+    if metrics["avg_response_seconds"] >= 1.5:
+        _upsert_alert(
+            state,
+            "warning",
+            "latency_drift",
+            f"Average response elevated ({metrics['avg_response_seconds']}s)",
+        )
+    if metrics["error_rate_percent"] >= 0.6:
+        _upsert_alert(
+            state,
+            "critical",
+            "error_spike",
+            f"Error rate spike ({metrics['error_rate_percent']}%)",
+        )
+
+    if not state["alerts"]:
+        _upsert_alert(state, "info", "all_clear", "All systems within nominal range")
+
+    del state["alerts"][10:]
+    return state["alerts"]
 
 
 def _run_voice_command(username: str, transcript_text: str) -> dict:
@@ -249,6 +307,15 @@ def metrics(x_session_token: str | None = Header(default=None)):
             "error_rate_percent": payload["error_rate_percent"],
         },
     )
+    alerts = _refresh_alerts(username, payload)
+    top_alert = alerts[0] if alerts else None
+    if top_alert:
+        _add_timeline_event(
+            username,
+            "alert",
+            f"Alert state: {top_alert['severity']} · {top_alert['message']}",
+            {"code": top_alert["code"], "severity": top_alert["severity"]},
+        )
     return payload
 
 
@@ -294,6 +361,14 @@ def get_timeline(
     else:
         items = [item for item in state["timeline"] if item["kind"] == kind][:safe_limit]
     return {"items": items}
+
+
+@app.get("/api/alerts")
+def get_alerts(limit: int = 5, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    state = _ensure_operator_state(username)
+    safe_limit = max(1, min(limit, 10))
+    return {"items": state["alerts"][:safe_limit]}
 
 
 @app.get("/api/settings")

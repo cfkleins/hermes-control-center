@@ -98,12 +98,23 @@
             <option value="metric">Metrics</option>
             <option value="prompt">Prompts</option>
             <option value="voice">Voice</option>
+            <option value="alert">Alerts</option>
             <option value="settings">Settings</option>
           </select>
           <button id="refresh-timeline" class="ghost">Refresh Timeline</button>
         </div>
         <ul id="timeline-events" class="history-list">
           <li class="status small">No timeline events yet.</li>
+        </ul>
+      </section>
+
+      <section class="card" id="alerts">
+        <h2>Operational Alerts</h2>
+        <div class="row">
+          <button id="refresh-alerts">Refresh Alerts</button>
+        </div>
+        <ul id="alerts-list" class="history-list">
+          <li class="status small">No alerts yet.</li>
         </ul>
       </section>
 
