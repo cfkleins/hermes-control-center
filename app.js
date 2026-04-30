@@ -26,17 +26,38 @@ function updateHeaderDatetime() {
 updateHeaderDatetime();
 setInterval(updateHeaderDatetime, 1000);
 
-function activateTab(tabName) {
+function normalizeTabName(tabName) {
+  const allowed = new Set(["operations", "prompt-voice"]);
+  return allowed.has(tabName) ? tabName : "operations";
+}
+
+function activateTab(tabName, { persist = true } = {}) {
+  const normalized = normalizeTabName(tabName);
   tabButtons.forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === tabName);
+    const isActive = btn.dataset.tab === normalized;
+    btn.classList.toggle("active", isActive);
+    btn.setAttribute("aria-selected", isActive ? "true" : "false");
   });
   tabSections.forEach((section) => {
-    section.classList.toggle("active", section.dataset.tabSection === tabName);
+    section.classList.toggle("active", section.dataset.tabSection === normalized);
   });
+  if (persist) {
+    localStorage.setItem("ops_ui_active_tab", normalized);
+    history.replaceState(null, "", `#${normalized}`);
+  }
 }
 
 tabButtons.forEach((btn) => {
   btn.addEventListener("click", () => activateTab(btn.dataset.tab || "operations"));
+});
+
+const initialTabFromHash = (window.location.hash || "").replace("#", "");
+const initialTabFromStorage = localStorage.getItem("ops_ui_active_tab") || "operations";
+activateTab(initialTabFromHash || initialTabFromStorage, { persist: false });
+
+window.addEventListener("hashchange", () => {
+  const tab = (window.location.hash || "").replace("#", "");
+  if (tab) activateTab(tab);
 });
 
 const authStatus = document.getElementById("auth-status");
