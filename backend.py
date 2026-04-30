@@ -56,6 +56,10 @@ class SettingsPayload(BaseModel):
     timeline_refresh_seconds: int = Field(ge=2, le=60)
 
 
+class AlertActionPayload(BaseModel):
+    action: str = Field(pattern="^(ack|snooze|resolve)$")
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -100,6 +104,7 @@ def _ensure_operator_state(username: str) -> dict:
             "voice_events": [],
             "timeline": [],
             "alerts": [],
+            "alert_actions": {},
             "settings": _load_global_settings(),
         }
     return operator_state[username]
@@ -162,12 +167,14 @@ def _run_prompt(username: str, prompt_text: str, max_retries: int = 2) -> dict:
 
 
 def _upsert_alert(state: dict, severity: str, code: str, message: str) -> None:
+    action_state = state.get("alert_actions", {}).get(code, "open")
     for alert in state["alerts"]:
         if alert["code"] == code:
             alert.update(
                 {
                     "severity": severity,
                     "message": message,
+                    "action_state": action_state,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 }
             )
@@ -179,6 +186,7 @@ def _upsert_alert(state: dict, severity: str, code: str, message: str) -> None:
             "severity": severity,
             "code": code,
             "message": message,
+            "action_state": action_state,
             "created_at": datetime.now(timezone.utc).isoformat(),
         },
     )
@@ -213,8 +221,41 @@ def _refresh_alerts(username: str, metrics: dict) -> list[dict]:
     if not state["alerts"]:
         _upsert_alert(state, "info", "all_clear", "All systems within nominal range")
 
+    state["alerts"] = [a for a in state["alerts"] if a.get("action_state") != "resolved"]
     del state["alerts"][10:]
     return state["alerts"]
+
+
+def _apply_alert_action(username: str, alert_id: int, action: str) -> dict:
+    state = _ensure_operator_state(username)
+    alert = next((a for a in state["alerts"] if a["id"] == alert_id), None)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    code = alert["code"]
+    if action == "ack":
+        state["alert_actions"][code] = "acknowledged"
+    elif action == "snooze":
+        state["alert_actions"][code] = "snoozed"
+    elif action == "resolve":
+        state["alert_actions"][code] = "resolved"
+
+    alert["action_state"] = state["alert_actions"][code]
+    _add_timeline_event(
+        username,
+        "alert",
+        f"Alert #{alert_id} {state['alert_actions'][code]}",
+        {"code": code, "action": action},
+    )
+
+    if state["alert_actions"][code] == "resolved":
+        state["alerts"] = [a for a in state["alerts"] if a["id"] != alert_id]
+
+    return {
+        "id": alert_id,
+        "code": code,
+        "action_state": state["alert_actions"][code],
+    }
 
 
 def _run_voice_command(username: str, transcript_text: str) -> dict:
@@ -369,6 +410,16 @@ def get_alerts(limit: int = 5, x_session_token: str | None = Header(default=None
     state = _ensure_operator_state(username)
     safe_limit = max(1, min(limit, 10))
     return {"items": state["alerts"][:safe_limit]}
+
+
+@app.post("/api/alerts/{alert_id}/action")
+def alert_action(
+    alert_id: int,
+    payload: AlertActionPayload,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _apply_alert_action(username, alert_id, payload.action)
 
 
 @app.get("/api/settings")

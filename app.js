@@ -278,7 +278,16 @@ function renderAlerts(items) {
     ? items
         .map((item) => {
           const severityClass = `alert-${item.severity}`;
-          return `<li class="${severityClass}"><strong>${item.severity.toUpperCase()}</strong> · ${item.message}<br><span class="status small">${item.code}</span></li>`;
+          const actionState = item.action_state || "open";
+          return `<li class="${severityClass}">
+            <strong>${item.severity.toUpperCase()}</strong> · ${item.message}<br>
+            <span class="status small">${item.code} · ${actionState}</span>
+            <div class="row alert-actions">
+              <button class="ghost" data-alert-id="${item.id}" data-alert-action="ack">Ack</button>
+              <button class="ghost" data-alert-id="${item.id}" data-alert-action="snooze">Snooze</button>
+              <button class="ghost" data-alert-id="${item.id}" data-alert-action="resolve">Resolve</button>
+            </div>
+          </li>`;
         })
         .join("")
     : '<li class="status small">No alerts yet.</li>';
@@ -289,6 +298,20 @@ async function loadAlerts() {
     const res = await authFetch("/api/alerts?limit=6");
     const data = await res.json();
     renderAlerts(data.items || []);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function applyAlertAction(alertId, action) {
+  try {
+    await authFetch(`/api/alerts/${alertId}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    await loadAlerts();
+    await loadTimeline();
   } catch (err) {
     console.error(err);
   }
@@ -313,6 +336,14 @@ function startTimelineAutoRefresh(seconds) {
 timelineFilter.addEventListener("change", loadTimeline);
 refreshTimelineBtn.addEventListener("click", loadTimeline);
 refreshAlertsBtn.addEventListener("click", loadAlerts);
+alertsList.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const action = target.getAttribute("data-alert-action");
+  const alertId = target.getAttribute("data-alert-id");
+  if (!action || !alertId) return;
+  await applyAlertAction(Number(alertId), action);
+});
 
 function applySettingsToUi(settings) {
   providerInput.value = settings.provider || "openai";
