@@ -142,6 +142,24 @@
       </div>
 
       <div class="layout tab-content" data-tab-section="prompt-voice">
+        <section class="card" id="prompt-voice-session">
+          <h2>Session (Prompt & Voice)</h2>
+          <div class="settings-grid">
+            <label for="pv-username-input">Username</label>
+            <input id="pv-username-input" type="text" placeholder="admin" />
+
+            <label for="pv-pin-input">PIN</label>
+            <input id="pv-pin-input" type="password" placeholder="1234" />
+          </div>
+          <div class="row">
+            <button id="pv-login-btn">Login</button>
+            <button id="pv-logout-btn" class="ghost">Logout</button>
+            <button id="pv-refresh-btn" class="ghost">Refresh Prompt & Voice Data</button>
+          </div>
+          <p><strong>Active Operator:</strong> <span id="pv-active-operator">(not logged in)</span></p>
+          <p id="pv-auth-status" class="status">Please log in.</p>
+        </section>
+
         <section class="card" id="prompting">
           <h2>Prompting Section</h2>
           <label for="prompt-input">Prompt</label>

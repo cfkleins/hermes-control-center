@@ -92,6 +92,14 @@ const pinInput = document.getElementById("pin-input");
 const loginBtn = document.getElementById("login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 
+const pvAuthStatus = document.getElementById("pv-auth-status");
+const pvActiveOperatorEl = document.getElementById("pv-active-operator");
+const pvUsernameInput = document.getElementById("pv-username-input");
+const pvPinInput = document.getElementById("pv-pin-input");
+const pvLoginBtn = document.getElementById("pv-login-btn");
+const pvLogoutBtn = document.getElementById("pv-logout-btn");
+const pvRefreshBtn = document.getElementById("pv-refresh-btn");
+
 const refreshBtn = document.getElementById("refresh-metrics");
 const tasksRunning = document.getElementById("tasks-running");
 const avgResponse = document.getElementById("avg-response");
@@ -139,7 +147,14 @@ const settingsStatus = document.getElementById("settings-status");
 let voicePointer = 0;
 
 function setAuthUi() {
-  activeOperatorEl.textContent = activeOperator || "(not logged in)";
+  const operatorLabel = activeOperator || "(not logged in)";
+  activeOperatorEl.textContent = operatorLabel;
+  if (pvActiveOperatorEl) pvActiveOperatorEl.textContent = operatorLabel;
+
+  if (!activeOperator) {
+    authStatus.textContent = "Please log in.";
+    if (pvAuthStatus) pvAuthStatus.textContent = "Please log in.";
+  }
 }
 
 async function authFetch(url, options = {}) {
@@ -159,24 +174,29 @@ async function authFetch(url, options = {}) {
   return res;
 }
 
+function setAuthStatus(message) {
+  authStatus.textContent = message;
+  if (pvAuthStatus) pvAuthStatus.textContent = message;
+}
+
 function logout() {
   sessionToken = "";
   activeOperator = "";
   localStorage.removeItem("ops_ui_token");
   localStorage.removeItem("ops_ui_operator");
   setAuthUi();
-  authStatus.textContent = "Logged out.";
+  setAuthStatus("Logged out.");
 }
 
-async function login() {
-  const username = usernameInput.value.trim();
-  const pin = pinInput.value.trim();
+async function login(credentials = null) {
+  const username = (credentials?.username ?? usernameInput.value).trim();
+  const pin = (credentials?.pin ?? pinInput.value).trim();
   if (!username || !pin) {
-    authStatus.textContent = "Enter username and PIN.";
+    setAuthStatus("Enter username and PIN.");
     return;
   }
 
-  authStatus.textContent = "Logging in...";
+  setAuthStatus("Logging in...");
   try {
     const res = await fetch("/api/auth/login", {
       method: "POST",
@@ -189,17 +209,40 @@ async function login() {
     activeOperator = data.username;
     localStorage.setItem("ops_ui_token", sessionToken);
     localStorage.setItem("ops_ui_operator", activeOperator);
+    usernameInput.value = activeOperator;
+    if (pvUsernameInput) pvUsernameInput.value = activeOperator;
+    pinInput.value = "";
+    if (pvPinInput) pvPinInput.value = "";
     setAuthUi();
-    authStatus.textContent = `Logged in as ${activeOperator}.`;
+    setAuthStatus(`Logged in as ${activeOperator}.`);
     await bootstrapData();
   } catch (err) {
     console.error(err);
-    authStatus.textContent = "Login failed.";
+    setAuthStatus("Login failed.");
   }
 }
 
-loginBtn.addEventListener("click", login);
+loginBtn.addEventListener("click", () => login());
 logoutBtn.addEventListener("click", logout);
+if (pvLoginBtn) {
+  pvLoginBtn.addEventListener("click", () =>
+    login({
+      username: pvUsernameInput?.value || "",
+      pin: pvPinInput?.value || ""
+    })
+  );
+}
+if (pvLogoutBtn) pvLogoutBtn.addEventListener("click", logout);
+if (pvRefreshBtn) {
+  pvRefreshBtn.addEventListener("click", async () => {
+    if (!sessionToken) return setAuthStatus("Please log in first.");
+    await loadPromptHistory();
+    await loadTemplates();
+    await loadVoiceEvents();
+    await loadTimeline();
+    setAuthStatus("Prompt & Voice data refreshed.");
+  });
+}
 
 function sparkline(history) {
   if (!history.length) return "--";
