@@ -22,8 +22,8 @@ DEFAULT_SETTINGS = {
 }
 DEFAULT_OPERATORS = {
     "operators": [
-        {"username": "admin", "pin": "1234"},
-        {"username": "ops", "pin": "1111"},
+        {"username": "admin", "pin": "1234", "role": "admin"},
+        {"username": "ops", "pin": "1111", "role": "operator"},
     ]
 }
 
@@ -103,6 +103,18 @@ def _load_operators() -> list[dict]:
     return data.get("operators", [])
 
 
+def _get_operator_record(username: str) -> dict | None:
+    operators = _load_operators()
+    return next((op for op in operators if op.get("username") == username), None)
+
+
+def _get_operator_role(username: str) -> str:
+    record = _get_operator_record(username)
+    if record and record.get("role") in {"admin", "operator"}:
+        return str(record["role"])
+    return "admin" if username == "admin" else "operator"
+
+
 def _ensure_operator_state(username: str) -> dict:
     if username not in operator_state:
         operator_state[username] = {
@@ -125,6 +137,11 @@ def _require_operator(x_session_token: str | None) -> str:
         raise HTTPException(status_code=401, detail="Invalid session token")
     _ensure_operator_state(username)
     return username
+
+
+def _require_admin(username: str) -> None:
+    if _get_operator_role(username) != "admin":
+        raise HTTPException(status_code=403, detail="Admin role required")
 
 
 def _add_timeline_event(username: str, kind: str, message: str, details: dict | None = None) -> dict:
@@ -343,13 +360,13 @@ def login(payload: LoginPayload):
     token = secrets.token_urlsafe(24)
     sessions[token] = payload.username
     _ensure_operator_state(payload.username)
-    return {"token": token, "username": payload.username}
+    return {"token": token, "username": payload.username, "role": _get_operator_role(payload.username)}
 
 
 @app.get("/api/auth/me")
 def me(x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
-    return {"username": username}
+    return {"username": username, "role": _get_operator_role(username)}
 
 
 @app.get("/api/health")
@@ -485,6 +502,7 @@ def get_settings(x_session_token: str | None = Header(default=None)):
 @app.put("/api/settings")
 def put_settings(payload: SettingsPayload, x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
+    _require_admin(username)
     state = _ensure_operator_state(username)
     data = payload.model_dump()
     state["settings"] = data

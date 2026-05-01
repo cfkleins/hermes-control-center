@@ -6,6 +6,7 @@ const transcriptSamples = [
 
 let sessionToken = localStorage.getItem("ops_ui_token") || "";
 let activeOperator = localStorage.getItem("ops_ui_operator") || "";
+let activeRole = localStorage.getItem("ops_ui_role") || "";
 let timelineIntervalId = null;
 const trendHistory = {
   tasks: [],
@@ -161,9 +162,18 @@ function setAuthUi() {
   activeOperatorEl.textContent = operatorLabel;
   if (pvActiveOperatorEl) pvActiveOperatorEl.textContent = operatorLabel;
 
+  const isAdmin = activeRole === "admin";
+  [providerInput, modelInput, voiceProfileSelect, timelineRefreshInput].forEach((el) => {
+    if (el) el.disabled = !activeOperator || !isAdmin;
+  });
+  if (saveSettingsBtn) saveSettingsBtn.disabled = !activeOperator || !isAdmin;
+
   if (!activeOperator) {
     authStatus.textContent = "Please log in.";
     if (pvAuthStatus) pvAuthStatus.textContent = "Please log in.";
+    if (settingsStatus) settingsStatus.textContent = "Login required.";
+  } else if (!isAdmin) {
+    if (settingsStatus) settingsStatus.textContent = "Read-only: operator role cannot modify settings.";
   }
 }
 
@@ -192,8 +202,10 @@ function setAuthStatus(message) {
 function logout() {
   sessionToken = "";
   activeOperator = "";
+  activeRole = "";
   localStorage.removeItem("ops_ui_token");
   localStorage.removeItem("ops_ui_operator");
+  localStorage.removeItem("ops_ui_role");
   setAuthUi();
   setAuthStatus("Logged out.");
 }
@@ -217,14 +229,16 @@ async function login(credentials = null) {
     const data = await res.json();
     sessionToken = data.token;
     activeOperator = data.username;
+    activeRole = data.role || "operator";
     localStorage.setItem("ops_ui_token", sessionToken);
     localStorage.setItem("ops_ui_operator", activeOperator);
+    localStorage.setItem("ops_ui_role", activeRole);
     usernameInput.value = activeOperator;
     if (pvUsernameInput) pvUsernameInput.value = activeOperator;
     pinInput.value = "";
     if (pvPinInput) pvPinInput.value = "";
     setAuthUi();
-    setAuthStatus(`Logged in as ${activeOperator}.`);
+    setAuthStatus(`Logged in as ${activeOperator} (${activeRole}).`);
     await bootstrapData();
   } catch (err) {
     console.error(err);
@@ -719,6 +733,10 @@ async function loadSettings() {
 }
 
 async function saveSettings() {
+  if (activeRole !== "admin") {
+    settingsStatus.textContent = "Read-only: admin role required to save settings.";
+    return;
+  }
   const payload = {
     provider: providerInput.value.trim(),
     model: modelInput.value.trim(),
@@ -761,8 +779,10 @@ async function restoreSession() {
     const res = await authFetch("/api/auth/me");
     const me = await res.json();
     activeOperator = me.username;
+    activeRole = me.role || "operator";
+    localStorage.setItem("ops_ui_role", activeRole);
     setAuthUi();
-    authStatus.textContent = `Session restored for ${activeOperator}.`;
+    authStatus.textContent = `Session restored for ${activeOperator} (${activeRole}).`;
     await bootstrapData();
   } catch {
     logout();
