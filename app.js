@@ -15,6 +15,7 @@ const trendHistory = {
 };
 
 const headerDatetime = document.getElementById("header-datetime");
+const headerRoleBadge = document.getElementById("header-role-badge");
 const activeTabLabel = document.getElementById("active-tab-label");
 const tabButtons = Array.from(document.querySelectorAll(".tab-btn"));
 const tabSections = Array.from(document.querySelectorAll(".tab-content"));
@@ -167,6 +168,15 @@ function setAuthUi() {
     if (el) el.disabled = !activeOperator || !isAdmin;
   });
   if (saveSettingsBtn) saveSettingsBtn.disabled = !activeOperator || !isAdmin;
+
+  if (headerRoleBadge) {
+    const normalizedRole = activeOperator ? (activeRole || "operator") : "none";
+    headerRoleBadge.textContent = `ROLE: ${normalizedRole.toUpperCase()}`;
+    headerRoleBadge.classList.remove("role-admin", "role-operator", "role-none");
+    headerRoleBadge.classList.add(
+      normalizedRole === "admin" ? "role-admin" : normalizedRole === "operator" ? "role-operator" : "role-none"
+    );
+  }
 
   if (!activeOperator) {
     authStatus.textContent = "Please log in.";
@@ -376,6 +386,7 @@ async function loadPromptHistory() {
 }
 
 function renderTemplates(items) {
+  const isAdmin = activeRole === "admin";
   templateList.innerHTML = items.length
     ? items
         .map(
@@ -384,7 +395,7 @@ function renderTemplates(items) {
             ${item.prompt.slice(0, 140)}
             <div class="row alert-actions">
               <button class="ghost" data-template-use="${item.id}">Use</button>
-              <button class="ghost" data-template-delete="${item.id}">Delete</button>
+              <button class="ghost" data-template-delete="${item.id}" ${isAdmin ? "" : "disabled"}>Delete</button>
             </div>
           </li>`
         )
@@ -466,6 +477,10 @@ templateList.addEventListener("click", async (event) => {
     }
   }
   if (deleteId) {
+    if (activeRole !== "admin") {
+      promptStatus.textContent = "Delete requires admin role.";
+      return;
+    }
     try {
       await authFetch(`/api/prompt-templates/${deleteId}`, { method: "DELETE" });
       await loadTemplates();
@@ -642,6 +657,7 @@ function renderTimeline(items) {
 }
 
 function renderAlerts(items) {
+  const isAdmin = activeRole === "admin";
   alertsList.innerHTML = items.length
     ? items
         .map((item) => {
@@ -651,9 +667,9 @@ function renderAlerts(items) {
             <strong>${item.severity.toUpperCase()}</strong> · ${item.message}<br>
             <span class="status small">${item.code} · ${actionState}</span>
             <div class="row alert-actions">
-              <button class="ghost" data-alert-id="${item.id}" data-alert-action="ack">Ack</button>
-              <button class="ghost" data-alert-id="${item.id}" data-alert-action="snooze">Snooze</button>
-              <button class="ghost" data-alert-id="${item.id}" data-alert-action="resolve">Resolve</button>
+              <button class="ghost" data-alert-id="${item.id}" data-alert-action="ack" ${isAdmin ? "" : "disabled"}>Ack</button>
+              <button class="ghost" data-alert-id="${item.id}" data-alert-action="snooze" ${isAdmin ? "" : "disabled"}>Snooze</button>
+              <button class="ghost" data-alert-id="${item.id}" data-alert-action="resolve" ${isAdmin ? "" : "disabled"}>Resolve</button>
             </div>
           </li>`;
         })
@@ -672,6 +688,10 @@ async function loadAlerts() {
 }
 
 async function applyAlertAction(alertId, action) {
+  if (activeRole !== "admin") {
+    setAuthStatus("Alert actions require admin role.");
+    return;
+  }
   try {
     await authFetch(`/api/alerts/${alertId}/action`, {
       method: "POST",

@@ -251,6 +251,7 @@ def _refresh_alerts(username: str, metrics: dict) -> list[dict]:
 
 
 def _apply_alert_action(username: str, alert_id: int, action: str) -> dict:
+    _require_admin(username)
     state = _ensure_operator_state(username)
     alert = next((a for a in state["alerts"] if a["id"] == alert_id), None)
     if not alert:
@@ -297,6 +298,7 @@ def _create_prompt_template(username: str, name: str, prompt: str) -> dict:
 
 
 def _delete_prompt_template(username: str, template_id: int) -> None:
+    _require_admin(username)
     state = _ensure_operator_state(username)
     before = len(state["prompt_templates"])
     state["prompt_templates"] = [t for t in state["prompt_templates"] if t["id"] != template_id]

@@ -34,6 +34,33 @@ body {
   font-size: 0.95rem;
   white-space: nowrap;
   padding-top: 0.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #3a4b74;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+}
+
+.role-badge.role-admin {
+  border-color: #2f7be0;
+  color: #9ac6ff;
+}
+
+.role-badge.role-operator {
+  border-color: #5f6b8f;
+  color: #c2cde8;
+}
+
+.role-badge.role-none {
+  opacity: 0.75;
 }
 
 h1 { margin: 0; font-size: 1.4rem; }
