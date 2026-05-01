@@ -219,6 +219,21 @@ function sparkline(history) {
     .join("");
 }
 
+function trendClassForHistory(history, { lowerIsBetter = false } = {}) {
+  if (!history || history.length < 2) return "trend-flat";
+  const prev = Number(history[history.length - 2]);
+  const last = Number(history[history.length - 1]);
+  if (last === prev) return "trend-flat";
+  const improved = lowerIsBetter ? last < prev : last > prev;
+  return improved ? "trend-good" : "trend-bad";
+}
+
+function applyTrendClass(element, className) {
+  if (!element) return;
+  element.classList.remove("trend-good", "trend-bad", "trend-flat");
+  element.classList.add(className);
+}
+
 function pushTrend(history, value, max = 12) {
   history.push(value);
   if (history.length > max) history.shift();
@@ -238,9 +253,18 @@ function updateKpiTrendStrip(data) {
   if (trendResponse) trendResponse.textContent = renderTrend(trendHistory.response, 2);
   if (trendError) trendError.textContent = renderTrend(trendHistory.error, 2);
 
-  if (trendTasksSpark) trendTasksSpark.textContent = sparkline(trendHistory.tasks);
-  if (trendResponseSpark) trendResponseSpark.textContent = sparkline(trendHistory.response);
-  if (trendErrorSpark) trendErrorSpark.textContent = sparkline(trendHistory.error);
+  if (trendTasksSpark) {
+    trendTasksSpark.textContent = sparkline(trendHistory.tasks);
+    applyTrendClass(trendTasksSpark, trendClassForHistory(trendHistory.tasks, { lowerIsBetter: true }));
+  }
+  if (trendResponseSpark) {
+    trendResponseSpark.textContent = sparkline(trendHistory.response);
+    applyTrendClass(trendResponseSpark, trendClassForHistory(trendHistory.response, { lowerIsBetter: true }));
+  }
+  if (trendErrorSpark) {
+    trendErrorSpark.textContent = sparkline(trendHistory.error);
+    applyTrendClass(trendErrorSpark, trendClassForHistory(trendHistory.error, { lowerIsBetter: true }));
+  }
 }
 
 async function refreshMetrics() {

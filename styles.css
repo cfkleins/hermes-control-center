@@ -150,6 +150,18 @@ h1 { margin: 0; font-size: 1.4rem; }
   white-space: nowrap;
 }
 
+.trend-sparkline.trend-good {
+  color: #53d18a;
+}
+
+.trend-sparkline.trend-bad {
+  color: #ff8a8a;
+}
+
+.trend-sparkline.trend-flat {
+  color: #9fb0d6;
+}
+
 textarea {
   width: 100%;
   margin-top: 0.5rem;
