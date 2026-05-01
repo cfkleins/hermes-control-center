@@ -124,6 +124,9 @@ const templateList = document.getElementById("template-list");
 
 const startListening = document.getElementById("start-listening");
 const stopListening = document.getElementById("stop-listening");
+const vadEnabled = document.getElementById("vad-enabled");
+const vadSilenceMsInput = document.getElementById("vad-silence-ms");
+const vadState = document.getElementById("vad-state");
 const micState = document.getElementById("mic-state");
 const transcript = document.getElementById("transcript");
 const voiceLastAction = document.getElementById("voice-last-action");
@@ -145,6 +148,13 @@ const reloadSettingsBtn = document.getElementById("reload-settings");
 const settingsStatus = document.getElementById("settings-status");
 
 let voicePointer = 0;
+let vadAudioContext = null;
+let vadMediaStream = null;
+let vadAnalyser = null;
+let vadSource = null;
+let vadRafId = null;
+let vadLastSpeechAt = 0;
+let isListeningActive = false;
 
 function setAuthUi() {
   const operatorLabel = activeOperator || "(not logged in)";
@@ -489,6 +499,77 @@ async function submitVoiceTranscript(text) {
   }
 }
 
+function stopVadMonitor() {
+  if (vadRafId) {
+    cancelAnimationFrame(vadRafId);
+    vadRafId = null;
+  }
+  if (vadSource) {
+    try { vadSource.disconnect(); } catch {}
+    vadSource = null;
+  }
+  if (vadMediaStream) {
+    vadMediaStream.getTracks().forEach((t) => t.stop());
+    vadMediaStream = null;
+  }
+  if (vadAudioContext) {
+    try { vadAudioContext.close(); } catch {}
+    vadAudioContext = null;
+  }
+  vadAnalyser = null;
+  if (vadState) vadState.textContent = "Inactive";
+}
+
+async function startVadMonitor() {
+  if (!vadEnabled?.checked) return;
+  stopVadMonitor();
+  try {
+    vadMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    vadAudioContext = new AudioContext();
+    vadSource = vadAudioContext.createMediaStreamSource(vadMediaStream);
+    vadAnalyser = vadAudioContext.createAnalyser();
+    vadAnalyser.fftSize = 1024;
+    vadSource.connect(vadAnalyser);
+
+    const buffer = new Uint8Array(vadAnalyser.fftSize);
+    const silenceMs = Number(vadSilenceMsInput?.value || 1200);
+    const threshold = 0.018;
+    vadLastSpeechAt = Date.now();
+    if (vadState) vadState.textContent = "Monitoring";
+
+    const tick = () => {
+      if (!isListeningActive || !vadAnalyser) return;
+      vadAnalyser.getByteTimeDomainData(buffer);
+      let sum = 0;
+      for (let i = 0; i < buffer.length; i += 1) {
+        const centered = (buffer[i] - 128) / 128;
+        sum += centered * centered;
+      }
+      const rms = Math.sqrt(sum / buffer.length);
+      const now = Date.now();
+
+      if (rms > threshold) {
+        vadLastSpeechAt = now;
+        if (vadState) vadState.textContent = "Speech detected";
+      } else if (now - vadLastSpeechAt > silenceMs) {
+        if (vadState) vadState.textContent = "Silence detected → stopping";
+        if (recognition) recognition.stop();
+        stopVadMonitor();
+        return;
+      } else if (vadState) {
+        vadState.textContent = "Listening for speech";
+      }
+
+      vadRafId = requestAnimationFrame(tick);
+    };
+
+    vadRafId = requestAnimationFrame(tick);
+  } catch (err) {
+    console.error(err);
+    if (vadState) vadState.textContent = "Unavailable";
+  }
+}
+
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
 if (SpeechRecognition) {
@@ -501,13 +582,25 @@ if (SpeechRecognition) {
     transcript.textContent = spoken;
     await submitVoiceTranscript(spoken);
   };
-  recognition.onend = () => (micState.textContent = "Idle");
-  recognition.onerror = () => (micState.textContent = "Error");
+  recognition.onend = () => {
+    isListeningActive = false;
+    micState.textContent = "Idle";
+    stopVadMonitor();
+  };
+  recognition.onerror = () => {
+    isListeningActive = false;
+    micState.textContent = "Error";
+    stopVadMonitor();
+  };
 }
 
 startListening.addEventListener("click", async () => {
   micState.textContent = "Listening";
-  if (recognition) return recognition.start();
+  if (recognition) {
+    isListeningActive = true;
+    await startVadMonitor();
+    return recognition.start();
+  }
   const simulated = transcriptSamples[voicePointer];
   voicePointer = (voicePointer + 1) % transcriptSamples.length;
   transcript.textContent = simulated;
@@ -516,7 +609,9 @@ startListening.addEventListener("click", async () => {
 });
 
 stopListening.addEventListener("click", () => {
+  isListeningActive = false;
   if (recognition) recognition.stop();
+  stopVadMonitor();
   micState.textContent = "Idle";
   transcript.textContent = "(waiting)";
 });

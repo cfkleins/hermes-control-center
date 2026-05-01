@@ -195,7 +195,15 @@
             <button id="start-listening">Start Listening</button>
             <button id="stop-listening" class="ghost">Stop</button>
           </div>
+          <div class="row">
+            <label for="vad-enabled" class="small">
+              <input id="vad-enabled" type="checkbox" checked /> Enable VAD auto-stop
+            </label>
+            <label for="vad-silence-ms" class="small">Silence (ms)</label>
+            <input id="vad-silence-ms" type="number" min="400" max="4000" step="100" value="1200" style="max-width:120px;" />
+          </div>
           <p><strong>Mic State:</strong> <span id="mic-state">Idle</span></p>
+          <p><strong>VAD:</strong> <span id="vad-state">Inactive</span></p>
           <p><strong>Transcript:</strong> <span id="transcript">(waiting)</span></p>
           <p><strong>Last Action:</strong> <span id="voice-last-action">(none)</span></p>
           <p class="status small">Starter mode uses simulated transcript events.</p>
