@@ -89,6 +89,10 @@ h1 { margin: 0; font-size: 1.4rem; }
   padding: 1rem;
 }
 
+#kpi-trends-card {
+  grid-column: 1 / -1;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
