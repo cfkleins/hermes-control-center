@@ -28,6 +28,7 @@ DEFAULT_OPERATORS = {
 }
 
 SESSION_IDLE_TIMEOUT_SECONDS = 15 * 60
+SESSION_ABSOLUTE_TIMEOUT_SECONDS = 8 * 60 * 60
 sessions: dict[str, dict] = {}
 prompt_id_counter = count(1)
 voice_id_counter = count(1)
@@ -139,12 +140,24 @@ def _expires_at_iso(last_seen_ts: float) -> str:
     return datetime.fromtimestamp(expires_ts, tz=timezone.utc).isoformat()
 
 
+def _absolute_expires_at_iso(created_ts: float) -> str:
+    expires_ts = created_ts + SESSION_ABSOLUTE_TIMEOUT_SECONDS
+    return datetime.fromtimestamp(expires_ts, tz=timezone.utc).isoformat()
+
+
+def _ts_iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
 def _purge_expired_sessions() -> None:
     now_ts = _utcnow_ts()
     expired_tokens = [
         token
         for token, session in sessions.items()
-        if now_ts - float(session.get("last_seen_ts", 0.0)) > SESSION_IDLE_TIMEOUT_SECONDS
+        if (
+            now_ts - float(session.get("last_seen_ts", 0.0)) > SESSION_IDLE_TIMEOUT_SECONDS
+            or now_ts - float(session.get("created_ts", 0.0)) > SESSION_ABSOLUTE_TIMEOUT_SECONDS
+        )
     ]
     for token in expired_tokens:
         sessions.pop(token, None)
@@ -153,7 +166,7 @@ def _purge_expired_sessions() -> None:
 def _create_session(username: str) -> tuple[str, dict]:
     token = secrets.token_urlsafe(24)
     now_ts = _utcnow_ts()
-    session = {"username": username, "last_seen_ts": now_ts}
+    session = {"username": username, "created_ts": now_ts, "last_seen_ts": now_ts}
     sessions[token] = session
     return token, session
 
@@ -411,7 +424,10 @@ def login(payload: LoginPayload):
         "username": payload.username,
         "role": _get_operator_role(payload.username),
         "session_idle_timeout_seconds": SESSION_IDLE_TIMEOUT_SECONDS,
+        "session_absolute_timeout_seconds": SESSION_ABSOLUTE_TIMEOUT_SECONDS,
         "session_expires_at": _expires_at_iso(float(session["last_seen_ts"])),
+        "session_absolute_expires_at": _absolute_expires_at_iso(float(session["created_ts"])),
+        "session_last_seen_at": _ts_iso(float(session["last_seen_ts"])),
     }
 
 
@@ -419,12 +435,19 @@ def login(payload: LoginPayload):
 def me(x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
     session = sessions.get(x_session_token or "")
-    expires_at = _expires_at_iso(float(session["last_seen_ts"])) if session else None
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session token")
+
+    last_seen_ts = float(session["last_seen_ts"])
+    created_ts = float(session.get("created_ts", last_seen_ts))
     return {
         "username": username,
         "role": _get_operator_role(username),
         "session_idle_timeout_seconds": SESSION_IDLE_TIMEOUT_SECONDS,
-        "session_expires_at": expires_at,
+        "session_absolute_timeout_seconds": SESSION_ABSOLUTE_TIMEOUT_SECONDS,
+        "session_expires_at": _expires_at_iso(last_seen_ts),
+        "session_absolute_expires_at": _absolute_expires_at_iso(created_ts),
+        "session_last_seen_at": _ts_iso(last_seen_ts),
     }
 
 

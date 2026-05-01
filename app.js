@@ -8,7 +8,11 @@ let sessionToken = localStorage.getItem("ops_ui_token") || "";
 let activeOperator = localStorage.getItem("ops_ui_operator") || "";
 let activeRole = localStorage.getItem("ops_ui_role") || "";
 let sessionIdleTimeoutSeconds = Number(localStorage.getItem("ops_ui_session_idle_timeout") || 0);
+let sessionAbsoluteTimeoutSeconds = Number(localStorage.getItem("ops_ui_session_absolute_timeout") || 0);
+let sessionCreatedAtMs = Number(localStorage.getItem("ops_ui_session_created_at_ms") || 0);
 let sessionLastTouchMs = Number(localStorage.getItem("ops_ui_session_last_touch_ms") || 0);
+let sessionLastSeenAtIso = localStorage.getItem("ops_ui_session_last_seen_at") || "";
+let sessionWarningShown = false;
 let sessionCountdownIntervalId = null;
 let timelineIntervalId = null;
 const trendHistory = {
@@ -106,6 +110,8 @@ const pvLogoutBtn = document.getElementById("pv-logout-btn");
 const pvRefreshBtn = document.getElementById("pv-refresh-btn");
 const sessionCountdownEl = document.getElementById("session-countdown");
 const pvSessionCountdownEl = document.getElementById("pv-session-countdown");
+const sessionLastActivityEl = document.getElementById("session-last-activity");
+const pvSessionLastActivityEl = document.getElementById("pv-session-last-activity");
 
 const refreshBtn = document.getElementById("refresh-metrics");
 const tasksRunning = document.getElementById("tasks-running");
@@ -175,6 +181,30 @@ function setSessionCountdownText(message) {
   if (pvSessionCountdownEl) pvSessionCountdownEl.textContent = message;
 }
 
+function setSessionLastActivityText(message) {
+  if (sessionLastActivityEl) sessionLastActivityEl.textContent = message;
+  if (pvSessionLastActivityEl) pvSessionLastActivityEl.textContent = message;
+}
+
+function parseIsoMs(value) {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function renderLastActivity() {
+  if (!sessionLastSeenAtIso) {
+    setSessionLastActivityText("Last activity: --");
+    return;
+  }
+  const d = new Date(sessionLastSeenAtIso);
+  if (Number.isNaN(d.getTime())) {
+    setSessionLastActivityText("Last activity: --");
+    return;
+  }
+  setSessionLastActivityText(`Last activity: ${d.toLocaleString()}`);
+}
+
 async function logoutRemote() {
   if (!sessionToken) return;
   try {
@@ -190,24 +220,39 @@ async function logoutRemote() {
 function touchSessionTimer() {
   if (!sessionToken || !sessionIdleTimeoutSeconds) return;
   sessionLastTouchMs = Date.now();
+  sessionLastSeenAtIso = new Date(sessionLastTouchMs).toISOString();
   localStorage.setItem("ops_ui_session_last_touch_ms", String(sessionLastTouchMs));
+  localStorage.setItem("ops_ui_session_last_seen_at", sessionLastSeenAtIso);
+  renderLastActivity();
 }
 
 function startSessionCountdown() {
   if (sessionCountdownIntervalId) clearInterval(sessionCountdownIntervalId);
   if (!sessionToken || !sessionIdleTimeoutSeconds) {
-    setSessionCountdownText("Session idle timeout: --");
+    setSessionCountdownText("Session timeout: --");
     return;
   }
 
   const tick = () => {
-    const remainingSec = sessionIdleTimeoutSeconds - Math.floor((Date.now() - sessionLastTouchMs) / 1000);
+    const nowMs = Date.now();
+    const idleRemainingSec = sessionIdleTimeoutSeconds - Math.floor((nowMs - sessionLastTouchMs) / 1000);
+    const absoluteRemainingSec = sessionAbsoluteTimeoutSeconds > 0 && sessionCreatedAtMs > 0
+      ? sessionAbsoluteTimeoutSeconds - Math.floor((nowMs - sessionCreatedAtMs) / 1000)
+      : Number.POSITIVE_INFINITY;
+    const remainingSec = Math.min(idleRemainingSec, absoluteRemainingSec);
+
     if (remainingSec <= 0) {
-      setSessionCountdownText("Session idle timeout: expired");
-      void logout({ localOnly: false, reason: "Session expired due to inactivity." });
+      setSessionCountdownText("Session timeout: expired");
+      void logout({ localOnly: false, reason: "Session expired (idle or max lifetime)." });
       return;
     }
-    setSessionCountdownText(`Session idle timeout: ${formatRemainingSeconds(remainingSec)}`);
+
+    if (remainingSec <= 60 && !sessionWarningShown) {
+      sessionWarningShown = true;
+      setAuthStatus(`Warning: session expires in ${formatRemainingSeconds(remainingSec)}.`);
+    }
+
+    setSessionCountdownText(`Session timeout: ${formatRemainingSeconds(remainingSec)}`);
   };
 
   tick();
@@ -216,9 +261,31 @@ function startSessionCountdown() {
 
 function applySessionMetadata(data = {}) {
   const ttl = Number(data.session_idle_timeout_seconds || 0);
+  const absoluteTtl = Number(data.session_absolute_timeout_seconds || 0);
   sessionIdleTimeoutSeconds = Number.isFinite(ttl) && ttl > 0 ? ttl : 0;
+  sessionAbsoluteTimeoutSeconds = Number.isFinite(absoluteTtl) && absoluteTtl > 0 ? absoluteTtl : 0;
+
+  const absoluteExpiryMs = parseIsoMs(data.session_absolute_expires_at);
+  sessionCreatedAtMs = absoluteExpiryMs > 0 && sessionAbsoluteTimeoutSeconds > 0
+    ? absoluteExpiryMs - sessionAbsoluteTimeoutSeconds * 1000
+    : Date.now();
+
+  const serverLastSeenMs = parseIsoMs(data.session_last_seen_at);
+  if (serverLastSeenMs > 0) {
+    sessionLastTouchMs = serverLastSeenMs;
+    sessionLastSeenAtIso = new Date(serverLastSeenMs).toISOString();
+  } else {
+    touchSessionTimer();
+  }
+
   localStorage.setItem("ops_ui_session_idle_timeout", String(sessionIdleTimeoutSeconds));
-  touchSessionTimer();
+  localStorage.setItem("ops_ui_session_absolute_timeout", String(sessionAbsoluteTimeoutSeconds));
+  localStorage.setItem("ops_ui_session_created_at_ms", String(sessionCreatedAtMs));
+  localStorage.setItem("ops_ui_session_last_touch_ms", String(sessionLastTouchMs));
+  localStorage.setItem("ops_ui_session_last_seen_at", sessionLastSeenAtIso || "");
+
+  sessionWarningShown = false;
+  renderLastActivity();
   startSessionCountdown();
 }
 
@@ -227,7 +294,8 @@ function setSessionInfoLoggedOut() {
     clearInterval(sessionCountdownIntervalId);
     sessionCountdownIntervalId = null;
   }
-  setSessionCountdownText("Session idle timeout: --");
+  setSessionCountdownText("Session timeout: --");
+  setSessionLastActivityText("Last activity: --");
 }
 
 function setAuthUi() {
@@ -290,12 +358,19 @@ async function logout({ localOnly = false, reason = "Logged out." } = {}) {
   activeOperator = "";
   activeRole = "";
   sessionIdleTimeoutSeconds = 0;
+  sessionAbsoluteTimeoutSeconds = 0;
+  sessionCreatedAtMs = 0;
   sessionLastTouchMs = 0;
+  sessionLastSeenAtIso = "";
+  sessionWarningShown = false;
   localStorage.removeItem("ops_ui_token");
   localStorage.removeItem("ops_ui_operator");
   localStorage.removeItem("ops_ui_role");
   localStorage.removeItem("ops_ui_session_idle_timeout");
+  localStorage.removeItem("ops_ui_session_absolute_timeout");
+  localStorage.removeItem("ops_ui_session_created_at_ms");
   localStorage.removeItem("ops_ui_session_last_touch_ms");
+  localStorage.removeItem("ops_ui_session_last_seen_at");
   setSessionInfoLoggedOut();
   setAuthUi();
   setAuthStatus(reason);
@@ -893,6 +968,7 @@ async function restoreSession() {
 }
 
 if (sessionToken && sessionIdleTimeoutSeconds > 0 && sessionLastTouchMs > 0) {
+  renderLastActivity();
   startSessionCountdown();
 } else {
   setSessionInfoLoggedOut();
