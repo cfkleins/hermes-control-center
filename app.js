@@ -7,6 +7,9 @@ const transcriptSamples = [
 let sessionToken = localStorage.getItem("ops_ui_token") || "";
 let activeOperator = localStorage.getItem("ops_ui_operator") || "";
 let activeRole = localStorage.getItem("ops_ui_role") || "";
+let sessionIdleTimeoutSeconds = Number(localStorage.getItem("ops_ui_session_idle_timeout") || 0);
+let sessionLastTouchMs = Number(localStorage.getItem("ops_ui_session_last_touch_ms") || 0);
+let sessionCountdownIntervalId = null;
 let timelineIntervalId = null;
 const trendHistory = {
   tasks: [],
@@ -101,6 +104,8 @@ const pvPinInput = document.getElementById("pv-pin-input");
 const pvLoginBtn = document.getElementById("pv-login-btn");
 const pvLogoutBtn = document.getElementById("pv-logout-btn");
 const pvRefreshBtn = document.getElementById("pv-refresh-btn");
+const sessionCountdownEl = document.getElementById("session-countdown");
+const pvSessionCountdownEl = document.getElementById("pv-session-countdown");
 
 const refreshBtn = document.getElementById("refresh-metrics");
 const tasksRunning = document.getElementById("tasks-running");
@@ -158,6 +163,73 @@ let vadRafId = null;
 let vadLastSpeechAt = 0;
 let isListeningActive = false;
 
+function formatRemainingSeconds(totalSeconds) {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const mm = String(Math.floor(safe / 60)).padStart(2, "0");
+  const ss = String(safe % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+function setSessionCountdownText(message) {
+  if (sessionCountdownEl) sessionCountdownEl.textContent = message;
+  if (pvSessionCountdownEl) pvSessionCountdownEl.textContent = message;
+}
+
+async function logoutRemote() {
+  if (!sessionToken) return;
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { "X-Session-Token": sessionToken }
+    });
+  } catch (err) {
+    console.warn("logout remote failed", err);
+  }
+}
+
+function touchSessionTimer() {
+  if (!sessionToken || !sessionIdleTimeoutSeconds) return;
+  sessionLastTouchMs = Date.now();
+  localStorage.setItem("ops_ui_session_last_touch_ms", String(sessionLastTouchMs));
+}
+
+function startSessionCountdown() {
+  if (sessionCountdownIntervalId) clearInterval(sessionCountdownIntervalId);
+  if (!sessionToken || !sessionIdleTimeoutSeconds) {
+    setSessionCountdownText("Session idle timeout: --");
+    return;
+  }
+
+  const tick = () => {
+    const remainingSec = sessionIdleTimeoutSeconds - Math.floor((Date.now() - sessionLastTouchMs) / 1000);
+    if (remainingSec <= 0) {
+      setSessionCountdownText("Session idle timeout: expired");
+      void logout({ localOnly: false, reason: "Session expired due to inactivity." });
+      return;
+    }
+    setSessionCountdownText(`Session idle timeout: ${formatRemainingSeconds(remainingSec)}`);
+  };
+
+  tick();
+  sessionCountdownIntervalId = setInterval(tick, 1000);
+}
+
+function applySessionMetadata(data = {}) {
+  const ttl = Number(data.session_idle_timeout_seconds || 0);
+  sessionIdleTimeoutSeconds = Number.isFinite(ttl) && ttl > 0 ? ttl : 0;
+  localStorage.setItem("ops_ui_session_idle_timeout", String(sessionIdleTimeoutSeconds));
+  touchSessionTimer();
+  startSessionCountdown();
+}
+
+function setSessionInfoLoggedOut() {
+  if (sessionCountdownIntervalId) {
+    clearInterval(sessionCountdownIntervalId);
+    sessionCountdownIntervalId = null;
+  }
+  setSessionCountdownText("Session idle timeout: --");
+}
+
 function setAuthUi() {
   const operatorLabel = activeOperator || "(not logged in)";
   activeOperatorEl.textContent = operatorLabel;
@@ -197,10 +269,11 @@ async function authFetch(url, options = {}) {
   };
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401) {
-    logout();
+    await logout({ localOnly: true, reason: "Session expired/invalid. Please login again." });
     throw new Error("Session expired/invalid. Please login again.");
   }
   if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
+  touchSessionTimer();
   return res;
 }
 
@@ -209,15 +282,23 @@ function setAuthStatus(message) {
   if (pvAuthStatus) pvAuthStatus.textContent = message;
 }
 
-function logout() {
+async function logout({ localOnly = false, reason = "Logged out." } = {}) {
+  if (!localOnly) {
+    await logoutRemote();
+  }
   sessionToken = "";
   activeOperator = "";
   activeRole = "";
+  sessionIdleTimeoutSeconds = 0;
+  sessionLastTouchMs = 0;
   localStorage.removeItem("ops_ui_token");
   localStorage.removeItem("ops_ui_operator");
   localStorage.removeItem("ops_ui_role");
+  localStorage.removeItem("ops_ui_session_idle_timeout");
+  localStorage.removeItem("ops_ui_session_last_touch_ms");
+  setSessionInfoLoggedOut();
   setAuthUi();
-  setAuthStatus("Logged out.");
+  setAuthStatus(reason);
 }
 
 async function login(credentials = null) {
@@ -243,6 +324,7 @@ async function login(credentials = null) {
     localStorage.setItem("ops_ui_token", sessionToken);
     localStorage.setItem("ops_ui_operator", activeOperator);
     localStorage.setItem("ops_ui_role", activeRole);
+    applySessionMetadata(data);
     usernameInput.value = activeOperator;
     if (pvUsernameInput) pvUsernameInput.value = activeOperator;
     pinInput.value = "";
@@ -257,7 +339,7 @@ async function login(credentials = null) {
 }
 
 loginBtn.addEventListener("click", () => login());
-logoutBtn.addEventListener("click", logout);
+logoutBtn.addEventListener("click", () => logout());
 if (pvLoginBtn) {
   pvLoginBtn.addEventListener("click", () =>
     login({
@@ -266,7 +348,7 @@ if (pvLoginBtn) {
     })
   );
 }
-if (pvLogoutBtn) pvLogoutBtn.addEventListener("click", logout);
+if (pvLogoutBtn) pvLogoutBtn.addEventListener("click", () => logout());
 if (pvRefreshBtn) {
   pvRefreshBtn.addEventListener("click", async () => {
     if (!sessionToken) return setAuthStatus("Please log in first.");
@@ -801,12 +883,19 @@ async function restoreSession() {
     activeOperator = me.username;
     activeRole = me.role || "operator";
     localStorage.setItem("ops_ui_role", activeRole);
+    applySessionMetadata(me);
     setAuthUi();
     authStatus.textContent = `Session restored for ${activeOperator} (${activeRole}).`;
     await bootstrapData();
   } catch {
-    logout();
+    await logout({ localOnly: true, reason: "Session restore failed. Please log in." });
   }
+}
+
+if (sessionToken && sessionIdleTimeoutSeconds > 0 && sessionLastTouchMs > 0) {
+  startSessionCountdown();
+} else {
+  setSessionInfoLoggedOut();
 }
 
 restoreSession();

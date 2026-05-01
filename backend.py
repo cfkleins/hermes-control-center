@@ -27,7 +27,8 @@ DEFAULT_OPERATORS = {
     ]
 }
 
-sessions: dict[str, str] = {}
+SESSION_IDLE_TIMEOUT_SECONDS = 15 * 60
+sessions: dict[str, dict] = {}
 prompt_id_counter = count(1)
 voice_id_counter = count(1)
 timeline_id_counter = count(1)
@@ -129,12 +130,56 @@ def _ensure_operator_state(username: str) -> dict:
     return operator_state[username]
 
 
+def _utcnow_ts() -> float:
+    return datetime.now(timezone.utc).timestamp()
+
+
+def _expires_at_iso(last_seen_ts: float) -> str:
+    expires_ts = last_seen_ts + SESSION_IDLE_TIMEOUT_SECONDS
+    return datetime.fromtimestamp(expires_ts, tz=timezone.utc).isoformat()
+
+
+def _purge_expired_sessions() -> None:
+    now_ts = _utcnow_ts()
+    expired_tokens = [
+        token
+        for token, session in sessions.items()
+        if now_ts - float(session.get("last_seen_ts", 0.0)) > SESSION_IDLE_TIMEOUT_SECONDS
+    ]
+    for token in expired_tokens:
+        sessions.pop(token, None)
+
+
+def _create_session(username: str) -> tuple[str, dict]:
+    token = secrets.token_urlsafe(24)
+    now_ts = _utcnow_ts()
+    session = {"username": username, "last_seen_ts": now_ts}
+    sessions[token] = session
+    return token, session
+
+
+def _touch_session(token: str) -> dict:
+    session = sessions[token]
+    session["last_seen_ts"] = _utcnow_ts()
+    return session
+
+
+def _revoke_session(token: str) -> None:
+    sessions.pop(token, None)
+
+
 def _require_operator(x_session_token: str | None) -> str:
     if not x_session_token:
         raise HTTPException(status_code=401, detail="Missing session token")
-    username = sessions.get(x_session_token)
-    if not username:
+    _purge_expired_sessions()
+    session = sessions.get(x_session_token)
+    if not session:
         raise HTTPException(status_code=401, detail="Invalid session token")
+    username = str(session.get("username", ""))
+    if not username:
+        _revoke_session(x_session_token)
+        raise HTTPException(status_code=401, detail="Invalid session token")
+    _touch_session(x_session_token)
     _ensure_operator_state(username)
     return username
 
@@ -359,16 +404,36 @@ def login(payload: LoginPayload):
     if not match:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    token = secrets.token_urlsafe(24)
-    sessions[token] = payload.username
+    token, session = _create_session(payload.username)
     _ensure_operator_state(payload.username)
-    return {"token": token, "username": payload.username, "role": _get_operator_role(payload.username)}
+    return {
+        "token": token,
+        "username": payload.username,
+        "role": _get_operator_role(payload.username),
+        "session_idle_timeout_seconds": SESSION_IDLE_TIMEOUT_SECONDS,
+        "session_expires_at": _expires_at_iso(float(session["last_seen_ts"])),
+    }
 
 
 @app.get("/api/auth/me")
 def me(x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
-    return {"username": username, "role": _get_operator_role(username)}
+    session = sessions.get(x_session_token or "")
+    expires_at = _expires_at_iso(float(session["last_seen_ts"])) if session else None
+    return {
+        "username": username,
+        "role": _get_operator_role(username),
+        "session_idle_timeout_seconds": SESSION_IDLE_TIMEOUT_SECONDS,
+        "session_expires_at": expires_at,
+    }
+
+
+@app.post("/api/auth/logout")
+def logout(x_session_token: str | None = Header(default=None)):
+    if not x_session_token:
+        raise HTTPException(status_code=401, detail="Missing session token")
+    _revoke_session(x_session_token)
+    return {"ok": True}
 
 
 @app.get("/api/health")
