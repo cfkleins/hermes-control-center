@@ -117,6 +117,11 @@ class LlmWikiPayload(BaseModel):
     notes: str = Field(min_length=0, max_length=500)
 
 
+class WikiInterviewPayload(BaseModel):
+    content: str = Field(min_length=0, max_length=100000)
+    status: str = Field(pattern="^(pending|in_progress|completed)$")
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -574,6 +579,75 @@ def _update_llm_wiki(username: str, wiki_id: int, payload: LlmWikiPayload) -> di
     return wiki
 
 
+def _find_wiki(username: str, wiki_id: int) -> dict:
+    state = _ensure_operator_state(username)
+    _ensure_existing_wiki_tiles(state)
+    wiki = next((item for item in state["llm_wikis"] if int(item.get("id", -1)) == wiki_id), None)
+    if not wiki:
+        raise HTTPException(status_code=404, detail="Wiki not found")
+    return wiki
+
+
+def _resolve_interview_path(wiki: dict) -> Path:
+    raw = str(wiki.get("interview_path") or "").strip()
+    path = Path(raw) if raw else Path(str(wiki.get("wiki_path", ""))) / "setup-interview.md"
+    if not str(path.resolve()).startswith(str(WIKI_ROOT_PATH.resolve())):
+        raise HTTPException(status_code=400, detail="Interview path outside allowed wiki root")
+    return path
+
+
+def _get_wiki_interview(username: str, wiki_id: int) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    path = _resolve_interview_path(wiki)
+    if not path.exists():
+        subject = str(wiki.get("subject", "Unknown Wiki"))
+        created_iso = datetime.now(timezone.utc).isoformat()
+        seed = (
+            f"# Setup Interview — {subject}\n\n"
+            f"_Status: pending_\n\n"
+            "Please answer these before first ingestion:\n\n"
+            "1. What is the exact domain scope for this wiki?\n"
+            "2. What are the top 5 entities that must exist first?\n"
+            "3. What sources should be ingested first (URLs/files)?\n"
+            "4. What tag taxonomy additions do you want beyond defaults?\n"
+            "5. What quality bar should trigger \"complete\" status for this wiki?\n\n"
+            f"Created at: {created_iso}\n"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(seed, encoding="utf-8")
+        wiki["interview_status"] = "pending"
+        wiki["interview_path"] = str(path)
+    return {
+        "wiki_id": int(wiki.get("id", wiki_id)),
+        "subject": str(wiki.get("subject", "")),
+        "status": str(wiki.get("interview_status", "pending")),
+        "interview_path": str(path),
+        "content": path.read_text(encoding="utf-8"),
+    }
+
+
+def _update_wiki_interview(username: str, wiki_id: int, payload: WikiInterviewPayload) -> dict:
+    _require_admin(username)
+    wiki = _find_wiki(username, wiki_id)
+    path = _resolve_interview_path(wiki)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(payload.content, encoding="utf-8")
+    wiki["interview_status"] = payload.status
+    wiki["interview_path"] = str(path)
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Setup interview updated: {wiki.get('subject', 'Unknown Wiki')}",
+        {"wiki_id": wiki_id, "interview_status": payload.status},
+    )
+    return {
+        "wiki_id": int(wiki.get("id", wiki_id)),
+        "status": payload.status,
+        "interview_path": str(path),
+        "updated": True,
+    }
+
+
 def _run_voice_command(username: str, transcript_text: str) -> dict:
     state = _ensure_operator_state(username)
     normalized = transcript_text.strip()
@@ -826,6 +900,22 @@ def create_llm_wiki(payload: LlmWikiPayload, x_session_token: str | None = Heade
 def update_llm_wiki(wiki_id: int, payload: LlmWikiPayload, x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
     return _update_llm_wiki(username, wiki_id, payload)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/interview")
+def get_wiki_interview(wiki_id: int, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return _get_wiki_interview(username, wiki_id)
+
+
+@app.put("/api/llm-wikis/{wiki_id}/interview")
+def put_wiki_interview(
+    wiki_id: int,
+    payload: WikiInterviewPayload,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _update_wiki_interview(username, wiki_id, payload)
 
 
 app.mount("/", StaticFiles(directory=".", html=True), name="static")

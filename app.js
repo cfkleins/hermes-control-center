@@ -175,8 +175,16 @@ const wikiRefreshBtn = document.getElementById("wiki-refresh-btn");
 const wikiEditingEl = document.getElementById("wiki-editing");
 const wikiStatusEl = document.getElementById("wiki-status");
 const llmWikisGrid = document.getElementById("llm-wikis-grid");
+const wikiInterviewTargetEl = document.getElementById("wiki-interview-target");
+const wikiInterviewStatusSelect = document.getElementById("wiki-interview-status");
+const wikiInterviewContentInput = document.getElementById("wiki-interview-content");
+const wikiInterviewLoadBtn = document.getElementById("wiki-interview-load");
+const wikiInterviewSaveBtn = document.getElementById("wiki-interview-save");
+const wikiInterviewCompleteBtn = document.getElementById("wiki-interview-complete");
+const wikiInterviewStatusMsgEl = document.getElementById("wiki-interview-status-msg");
 
 let selectedWikiId = null;
+let selectedWikiSubject = "";
 let voicePointer = 0;
 let vadAudioContext = null;
 let vadMediaStream = null;
@@ -329,6 +337,9 @@ function setAuthUi() {
   });
   if (saveSettingsBtn) saveSettingsBtn.disabled = !activeOperator || !isAdmin;
   if (wikiSaveBtn) wikiSaveBtn.disabled = !activeOperator || !isAdmin;
+  if (wikiInterviewLoadBtn) wikiInterviewLoadBtn.disabled = !activeOperator || !selectedWikiId;
+  if (wikiInterviewSaveBtn) wikiInterviewSaveBtn.disabled = !activeOperator || !isAdmin || !selectedWikiId;
+  if (wikiInterviewCompleteBtn) wikiInterviewCompleteBtn.disabled = !activeOperator || !isAdmin || !selectedWikiId;
 
   if (headerRoleBadge) {
     const normalizedRole = activeOperator ? (activeRole || "operator") : "none";
@@ -862,6 +873,7 @@ function renderWikis(items) {
 
 function resetWikiEditor() {
   selectedWikiId = null;
+  selectedWikiSubject = "";
   if (wikiSubjectInput) wikiSubjectInput.value = "";
   if (wikiStatusSelect) wikiStatusSelect.value = "planned";
   if (wikiHealthSelect) wikiHealthSelect.value = "green";
@@ -869,6 +881,67 @@ function resetWikiEditor() {
   if (wikiNotesInput) wikiNotesInput.value = "";
   if (wikiSaveBtn) wikiSaveBtn.textContent = "Create Wiki Tile";
   if (wikiEditingEl) wikiEditingEl.textContent = "Editing: new tile";
+  resetInterviewEditor();
+  setAuthUi();
+}
+
+function resetInterviewEditor() {
+  if (wikiInterviewTargetEl) wikiInterviewTargetEl.textContent = selectedWikiId
+    ? `Selected wiki: #${selectedWikiId} ${selectedWikiSubject}`
+    : "No wiki selected.";
+  if (wikiInterviewStatusSelect) wikiInterviewStatusSelect.value = "pending";
+  if (wikiInterviewContentInput) wikiInterviewContentInput.value = "";
+  if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = selectedWikiId
+    ? "Load interview from selected tile."
+    : "Select a wiki tile, then load interview.";
+}
+
+async function loadInterviewForSelectedWiki() {
+  if (!selectedWikiId) {
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Select a wiki tile first.";
+    return;
+  }
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/interview`);
+    const data = await res.json();
+    if (wikiInterviewStatusSelect) wikiInterviewStatusSelect.value = data.status || "pending";
+    if (wikiInterviewContentInput) wikiInterviewContentInput.value = data.content || "";
+    if (wikiInterviewTargetEl) wikiInterviewTargetEl.textContent = `Selected wiki: #${data.wiki_id} ${data.subject}`;
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Interview loaded from ${data.interview_path}.`;
+    setAuthUi();
+  } catch (err) {
+    console.error(err);
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to load setup interview.";
+  }
+}
+
+async function saveInterviewForSelectedWiki(forceComplete = false) {
+  if (!selectedWikiId) {
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Select a wiki tile first.";
+    return;
+  }
+  if (activeRole !== "admin") {
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Read-only: admin role required to save interview.";
+    return;
+  }
+  try {
+    const status = forceComplete ? "completed" : (wikiInterviewStatusSelect?.value || "pending");
+    const content = wikiInterviewContentInput?.value || "";
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/interview`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, status })
+    });
+    const data = await res.json();
+    if (wikiInterviewStatusSelect) wikiInterviewStatusSelect.value = status;
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Interview saved (${status}) at ${data.interview_path}.`;
+    await loadWikis();
+    await loadTimeline();
+    setAuthUi();
+  } catch (err) {
+    console.error(err);
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to save setup interview.";
+  }
 }
 
 async function loadWikis() {
@@ -1059,6 +1132,13 @@ if (wikiClearBtn) wikiClearBtn.addEventListener("click", () => {
   if (wikiStatusEl) wikiStatusEl.textContent = "Editor reset.";
 });
 if (wikiRefreshBtn) wikiRefreshBtn.addEventListener("click", loadWikis);
+if (wikiInterviewLoadBtn) wikiInterviewLoadBtn.addEventListener("click", loadInterviewForSelectedWiki);
+if (wikiInterviewSaveBtn) wikiInterviewSaveBtn.addEventListener("click", async () => {
+  await saveInterviewForSelectedWiki(false);
+});
+if (wikiInterviewCompleteBtn) wikiInterviewCompleteBtn.addEventListener("click", async () => {
+  await saveInterviewForSelectedWiki(true);
+});
 if (llmWikisGrid) {
   llmWikisGrid.addEventListener("click", async (event) => {
     const target = event.target;
@@ -1075,6 +1155,7 @@ if (llmWikisGrid) {
 
       if (editId) {
         selectedWikiId = match.id;
+        selectedWikiSubject = match.subject || "";
         if (wikiSubjectInput) wikiSubjectInput.value = match.subject || "";
         if (wikiStatusSelect) wikiStatusSelect.value = match.status || "planned";
         if (wikiHealthSelect) wikiHealthSelect.value = match.health || "yellow";
@@ -1083,6 +1164,8 @@ if (llmWikisGrid) {
         if (wikiSaveBtn) wikiSaveBtn.textContent = `Update Wiki #${match.id}`;
         if (wikiEditingEl) wikiEditingEl.textContent = `Editing: #${match.id} ${match.subject}`;
         if (wikiStatusEl) wikiStatusEl.textContent = `Loaded wiki #${match.id} into editor.`;
+        resetInterviewEditor();
+        setAuthUi();
       }
 
       if (touchId) {
@@ -1148,4 +1231,5 @@ if (sessionToken && sessionIdleTimeoutSeconds > 0 && sessionLastTouchMs > 0) {
   setSessionInfoLoggedOut();
 }
 
+resetInterviewEditor();
 restoreSession();

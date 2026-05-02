@@ -265,6 +265,28 @@
             <p class="status small">No wikis loaded.</p>
           </div>
         </section>
+
+        <section class="card" id="wiki-interview-card">
+          <h2>Setup Interview</h2>
+          <p id="wiki-interview-target" class="status small">No wiki selected.</p>
+          <div class="settings-grid">
+            <label for="wiki-interview-status">Interview Status</label>
+            <select id="wiki-interview-status">
+              <option value="pending">pending</option>
+              <option value="in_progress">in_progress</option>
+              <option value="completed">completed</option>
+            </select>
+
+            <label for="wiki-interview-content">Interview Markdown</label>
+            <textarea id="wiki-interview-content" rows="12" placeholder="# Setup Interview\n\nAnswer the intake questions..."></textarea>
+          </div>
+          <div class="row">
+            <button id="wiki-interview-load" class="ghost">Load from selected tile</button>
+            <button id="wiki-interview-save">Save Interview</button>
+            <button id="wiki-interview-complete" class="ghost">Mark Complete</button>
+          </div>
+          <p id="wiki-interview-status-msg" class="status">Select a wiki tile, then load interview.</p>
+        </section>
       </div>
     </main>
 
