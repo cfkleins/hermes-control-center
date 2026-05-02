@@ -229,9 +229,19 @@ const wikiAskCopyBtn = document.getElementById("wiki-ask-copy");
 const wikiAskExportBtn = document.getElementById("wiki-ask-export");
 const wikiAskStatusEl = document.getElementById("wiki-ask-status");
 const wikiAskResultEl = document.getElementById("wiki-ask-result");
+const wikiLintCard = document.getElementById("wiki-lint-card");
+const wikiLintBackdrop = document.getElementById("wiki-lint-backdrop");
+const wikiLintCloseBtn = document.getElementById("wiki-lint-close");
+const wikiLintTargetEl = document.getElementById("wiki-lint-target");
+const wikiLintRunBtn = document.getElementById("wiki-lint-run");
+const wikiLintCreateAllBtn = document.getElementById("wiki-lint-create-all");
+const wikiLintStatusEl = document.getElementById("wiki-lint-status");
+const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
+const wikiLintActionsEl = document.getElementById("wiki-lint-actions");
 
 let selectedWikiId = null;
 let selectedWikiSubject = "";
+let selectedWikiLintSnapshot = null;
 let voicePointer = 0;
 let vadAudioContext = null;
 let vadMediaStream = null;
@@ -328,6 +338,43 @@ function closeAskModal() {
   wikiAskCard.classList.add("hidden");
   wikiAskBackdrop.classList.add("hidden");
   document.body.classList.remove("modal-open");
+}
+
+function openLintModal(match) {
+  if (!wikiLintCard || !wikiLintBackdrop) return;
+  selectedWikiId = match.id;
+  selectedWikiSubject = match.subject || "";
+  selectedWikiLintSnapshot = null;
+  if (wikiLintTargetEl) wikiLintTargetEl.textContent = `Selected wiki: #${match.id} ${match.subject}`;
+  if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Run lint to inspect wiki health.";
+  if (wikiLintSummaryEl) wikiLintSummaryEl.textContent = "No lint results yet.";
+  if (wikiLintActionsEl) wikiLintActionsEl.innerHTML = "No missing scaffold actions yet.";
+  wikiLintCard.classList.remove("hidden");
+  wikiLintBackdrop.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  if (wikiLintRunBtn) wikiLintRunBtn.focus();
+}
+
+function closeLintModal() {
+  if (!wikiLintCard || !wikiLintBackdrop) return;
+  wikiLintCard.classList.add("hidden");
+  wikiLintBackdrop.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+
+function renderLintActions(data) {
+  if (!wikiLintActionsEl) return;
+  const missingFiles = data?.missing?.files || [];
+  const missingDirs = data?.missing?.dirs || [];
+  const missing = [...missingFiles, ...missingDirs];
+  if (!missing.length) {
+    wikiLintActionsEl.textContent = "No missing scaffold detected. ✅";
+    return;
+  }
+  const buttons = missing
+    .map((item) => `<button class="ghost" data-lint-create-target="${item}">Create ${item}</button>`)
+    .join(" ");
+  wikiLintActionsEl.innerHTML = `Missing scaffold (${missing.length}): ${missing.join(", ")}\n\n${buttons}`;
 }
 
 function isWizardModalOpen() {
@@ -1284,10 +1331,52 @@ function exportAskResult() {
 }
 
 async function runWikiLintFlow(match) {
+  selectedWikiId = match.id;
+  selectedWikiSubject = match.subject || "";
   const res = await authFetch(`/api/llm-wikis/${match.id}/lint`);
   const data = await res.json();
+  selectedWikiLintSnapshot = data;
   if (wikiStatusEl) wikiStatusEl.textContent = `Lint complete for ${match.subject}: ${data.health} (${data.score})`;
   if (wikiDocViewerEl) wikiDocViewerEl.textContent = JSON.stringify(data, null, 2);
+  if (wikiLintSummaryEl) {
+    wikiLintSummaryEl.textContent = [
+      `Wiki: ${data.subject}`,
+      `Path: ${data.wiki_path}`,
+      `Health: ${data.health}`,
+      `Score: ${data.score}`,
+      `Missing files: ${(data.missing?.files || []).join(", ") || "none"}`,
+      `Missing dirs: ${(data.missing?.dirs || []).join(", ") || "none"}`,
+      `Taxonomy markers: ${data.checks?.taxonomy_markers_present ? "yes" : "no"}`,
+      `Crosslink marker: ${data.checks?.crosslink_marker_present ? "yes" : "no"}`
+    ].join("\n");
+  }
+  if (wikiLintStatusEl) wikiLintStatusEl.textContent = `Lint complete: ${data.health} (${data.score}).`;
+  renderLintActions(data);
+}
+
+async function createWikiScaffold(targets = []) {
+  if (!selectedWikiId) return;
+  if (activeRole !== "admin") {
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Read-only: admin role required to create scaffold.";
+    return;
+  }
+  const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/scaffold`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targets })
+  });
+  const data = await res.json();
+  selectedWikiLintSnapshot = data.lint || null;
+  if (wikiLintStatusEl) wikiLintStatusEl.textContent = `Scaffold updated. Created: ${(data.created || []).length}, skipped: ${(data.skipped || []).length}.`;
+  if (data.lint) {
+    if (wikiDocViewerEl) wikiDocViewerEl.textContent = JSON.stringify(data.lint, null, 2);
+    if (wikiLintSummaryEl) {
+      wikiLintSummaryEl.textContent = `Health: ${data.lint.health} (${data.lint.score})\nMissing files: ${(data.lint.missing?.files || []).join(", ") || "none"}\nMissing dirs: ${(data.lint.missing?.dirs || []).join(", ") || "none"}`;
+    }
+    renderLintActions(data.lint);
+  }
+  await loadWikis();
+  await loadTimeline();
 }
 
 function resetWikiEditor() {
@@ -1626,8 +1715,48 @@ if (wikiAskBackdrop) wikiAskBackdrop.addEventListener("click", closeAskModal);
 if (wikiAskSubmitBtn) wikiAskSubmitBtn.addEventListener("click", submitAskModal);
 if (wikiAskCopyBtn) wikiAskCopyBtn.addEventListener("click", copyAskResult);
 if (wikiAskExportBtn) wikiAskExportBtn.addEventListener("click", exportAskResult);
+if (wikiLintCloseBtn) wikiLintCloseBtn.addEventListener("click", closeLintModal);
+if (wikiLintBackdrop) wikiLintBackdrop.addEventListener("click", closeLintModal);
+if (wikiLintRunBtn) wikiLintRunBtn.addEventListener("click", async () => {
+  if (!selectedWikiId) return;
+  try {
+    const res = await authFetch("/api/llm-wikis?limit=50");
+    const data = await res.json();
+    const match = (data.items || []).find((item) => item.id === Number(selectedWikiId));
+    if (!match) return;
+    await runWikiLintFlow(match);
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Lint run failed.";
+  }
+});
+if (wikiLintCreateAllBtn) wikiLintCreateAllBtn.addEventListener("click", async () => {
+  try {
+    await createWikiScaffold([]);
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Scaffold creation failed.";
+  }
+});
+if (wikiLintActionsEl) wikiLintActionsEl.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const item = target.getAttribute("data-lint-create-target");
+  if (!item) return;
+  try {
+    await createWikiScaffold([item]);
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = `Failed to create ${item}.`;
+  }
+});
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    if (!wikiLintCard?.classList.contains("hidden")) {
+      event.preventDefault();
+      closeLintModal();
+      return;
+    }
     if (!wikiAskCard?.classList.contains("hidden")) {
       event.preventDefault();
       closeAskModal();
@@ -1658,6 +1787,7 @@ renderWizardStep();
 closeWizardModal();
 closeIngestModal();
 closeAskModal();
+closeLintModal();
 if (llmWikisGrid) {
   llmWikisGrid.addEventListener("click", async (event) => {
     const target = event.target;
@@ -1730,6 +1860,7 @@ if (llmWikisGrid) {
         await loadTimeline();
       }
       if (lintId) {
+        openLintModal(match);
         await runWikiLintFlow(match);
         await loadWikis();
         await loadTimeline();

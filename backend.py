@@ -151,6 +151,10 @@ class WikiAskPayload(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
+class WikiScaffoldPayload(BaseModel):
+    targets: list[str] = Field(default_factory=list)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1020,6 +1024,74 @@ def _lint_wiki(username: str, wiki_id: int) -> dict:
     }
 
 
+def _create_missing_scaffold(username: str, wiki_id: int, payload: WikiScaffoldPayload) -> dict:
+    _require_admin(username)
+    wiki = _find_wiki(username, wiki_id)
+    wiki_path = _resolve_wiki_path(wiki)
+    lint = _lint_wiki(username, wiki_id)
+
+    requested = [str(t).strip().strip("/") for t in (payload.targets or []) if str(t).strip()]
+    to_create = requested if requested else [*lint.get("missing", {}).get("files", []), *lint.get("missing", {}).get("dirs", [])]
+
+    created: list[str] = []
+    skipped: list[str] = []
+    allowed_files = {"SCHEMA.md", "index.md", "log.md", "setup-interview.md"}
+    allowed_dirs = {"raw/articles", "raw/papers", "raw/transcripts", "raw/assets"}
+
+    for rel in to_create:
+        if rel in allowed_dirs:
+            p = wiki_path / rel
+            p.mkdir(parents=True, exist_ok=True)
+            created.append(rel)
+            continue
+        if rel in allowed_files:
+            p = wiki_path / rel
+            if p.exists():
+                skipped.append(rel)
+                continue
+            p.parent.mkdir(parents=True, exist_ok=True)
+            subject = str(wiki.get("subject", "Unknown Wiki"))
+            if rel == "SCHEMA.md":
+                text = (
+                    f"# SCHEMA — {subject}\n\n"
+                    "## Taxonomy\n"
+                    "- tag:\n\n"
+                    "## Entity types\n"
+                    "- Person\n- Organization\n- Model\n\n"
+                    "## Crosslinking\n"
+                    "- Use wikilinks like [[Entity Name]].\n"
+                )
+            elif rel == "index.md":
+                text = f"# {subject}\n\n## Overview\n- Seed this index with key nodes and links.\n"
+            elif rel == "log.md":
+                text = f"# Wiki Log — {subject}\n\n## Events\n- Scaffold created.\n"
+            else:
+                text = (
+                    f"# Wiki Charter & Intake Notes — {subject}\n\n"
+                    "_Status: pending_\n\n"
+                    "## Schema-driving intake\n- Domain scope:\n- Taxonomy tags:\n- Seed entities:\n"
+                )
+            p.write_text(text, encoding="utf-8")
+            created.append(rel)
+            continue
+        skipped.append(rel)
+
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Wiki scaffold created: {wiki.get('subject', 'Unknown Wiki')}",
+        {"wiki_id": wiki_id, "created": created, "skipped": skipped},
+    )
+    post_lint = _lint_wiki(username, wiki_id)
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject", ""),
+        "created": created,
+        "skipped": skipped,
+        "lint": post_lint,
+    }
+
+
 def _load_wiki_doc(doc_kind: str) -> dict:
     normalized = doc_kind.strip().lower()
     mapping = {
@@ -1524,6 +1596,16 @@ def ask_wiki(
 def lint_wiki(wiki_id: int, x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
     return _lint_wiki(username, wiki_id)
+
+
+@app.post("/api/llm-wikis/{wiki_id}/scaffold")
+def scaffold_wiki(
+    wiki_id: int,
+    payload: WikiScaffoldPayload,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _create_missing_scaffold(username, wiki_id, payload)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")

@@ -266,6 +266,7 @@
         <div id="wiki-wizard-backdrop" class="modal-backdrop hidden"></div>
         <div id="wiki-ingest-backdrop" class="modal-backdrop hidden"></div>
         <div id="wiki-ask-backdrop" class="modal-backdrop hidden"></div>
+        <div id="wiki-lint-backdrop" class="modal-backdrop hidden"></div>
         <section class="card wizard-modal hidden" id="wiki-wizard-card" aria-modal="true" role="dialog" aria-labelledby="wiki-wizard-title">
           <div class="row">
             <h2 id="wiki-wizard-title" style="margin:0;">New Wiki Wizard (Karpathy Method)</h2>
@@ -354,6 +355,21 @@
           </div>
           <p id="wiki-ask-status" class="status">Ask a question and submit.</p>
           <pre id="wiki-ask-result" class="status small">No query results yet.</pre>
+        </section>
+
+        <section class="card lint-modal hidden" id="wiki-lint-card" aria-modal="true" role="dialog" aria-labelledby="wiki-lint-title">
+          <div class="row">
+            <h2 id="wiki-lint-title" style="margin:0;">Lint Health</h2>
+            <button id="wiki-lint-close" class="ghost">Close</button>
+          </div>
+          <p id="wiki-lint-target" class="status small">No wiki selected.</p>
+          <div class="row">
+            <button id="wiki-lint-run">Run Lint</button>
+            <button id="wiki-lint-create-all" class="ghost">Create Missing Scaffold</button>
+          </div>
+          <p id="wiki-lint-status" class="status">Run lint to inspect wiki health.</p>
+          <pre id="wiki-lint-summary" class="status small">No lint results yet.</pre>
+          <div id="wiki-lint-actions" class="status small">No missing scaffold actions yet.</div>
         </section>
 
         <section class="card" id="llm-wikis-tiles-card">
