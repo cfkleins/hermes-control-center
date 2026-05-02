@@ -1224,12 +1224,67 @@ def _build_conformance_playbook(username: str, wiki_id: int) -> dict:
     }
 
 
+def _build_repair_report(username: str, wiki_id: int, before: dict, after: dict, scaffold: dict, playbook: dict) -> dict:
+    before_missing_files = before.get("missing", {}).get("files", [])
+    before_missing_dirs = before.get("missing", {}).get("dirs", [])
+    after_missing_files = after.get("missing", {}).get("files", [])
+    after_missing_dirs = after.get("missing", {}).get("dirs", [])
+
+    before_orphans = before.get("checks", {}).get("orphan_pages", []) or []
+    after_orphans = after.get("checks", {}).get("orphan_pages", []) or []
+
+    resolved_issues: list[str] = []
+    unresolved_issues: list[str] = []
+
+    if len(after_missing_files) < len(before_missing_files):
+        resolved_issues.append("Reduced missing required files.")
+    if len(after_missing_dirs) < len(before_missing_dirs):
+        resolved_issues.append("Reduced missing required directories.")
+    if (after.get("score") or 0) > (before.get("score") or 0):
+        resolved_issues.append("Improved lint score.")
+
+    if after_missing_files:
+        unresolved_issues.append(f"Missing files remain: {', '.join(after_missing_files)}")
+    if after_missing_dirs:
+        unresolved_issues.append(f"Missing directories remain: {', '.join(after_missing_dirs)}")
+    if after_orphans:
+        unresolved_issues.append(f"Orphan pages remain: {len(after_orphans)}")
+    if after.get("checks", {}).get("graph_drift_detected"):
+        unresolved_issues.append("Graph drift still detected.")
+    if not after.get("checks", {}).get("taxonomy_markers_present"):
+        unresolved_issues.append("Taxonomy markers still missing in schema.")
+
+    recommendations = []
+    for step in (playbook.get("playbook") or []):
+        recommendations.append(f"{step.get('title')}: {step.get('reason')}")
+        if len(recommendations) >= 3:
+            break
+
+    summary = {
+        "score_delta": (after.get("score") or 0) - (before.get("score") or 0),
+        "health_before": before.get("health"),
+        "health_after": after.get("health"),
+        "created_scaffold": scaffold.get("created", []),
+        "skipped_scaffold": scaffold.get("skipped", []),
+    }
+
+    return {
+        "wiki_id": wiki_id,
+        "subject": before.get("subject") or after.get("subject"),
+        "summary": summary,
+        "resolved_issues": resolved_issues,
+        "unresolved_issues": unresolved_issues,
+        "next_3_recommendations": recommendations,
+    }
+
+
 def _run_guided_repair(username: str, wiki_id: int, payload: WikiRepairRunPayload) -> dict:
     _require_admin(username)
     before = _lint_wiki(username, wiki_id)
     scaffold = _create_missing_scaffold(username, wiki_id, WikiScaffoldPayload(targets=[]))
     after = scaffold.get("lint") or _lint_wiki(username, wiki_id)
     playbook = _build_conformance_playbook(username, wiki_id)
+    report = _build_repair_report(username, wiki_id, before, after, scaffold, playbook)
     _add_timeline_event(
         username,
         "wiki",
@@ -1248,6 +1303,7 @@ def _run_guided_repair(username: str, wiki_id: int, payload: WikiRepairRunPayloa
         "after": after,
         "scaffold": {"created": scaffold.get("created", []), "skipped": scaffold.get("skipped", [])},
         "playbook": playbook.get("playbook", []),
+        "report": report,
         "include_orphan_fix_guidance": bool(payload.include_orphan_fix_guidance),
     }
 
@@ -1860,6 +1916,16 @@ def wiki_lint_repair_run(
 ):
     username = _require_operator(x_session_token)
     return _run_guided_repair(username, wiki_id, payload)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint/repair-report")
+def wiki_lint_repair_report(wiki_id: int, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    before = _lint_wiki(username, wiki_id)
+    scaffold = {"created": [], "skipped": []}
+    after = _lint_wiki(username, wiki_id)
+    playbook = _build_conformance_playbook(username, wiki_id)
+    return _build_repair_report(username, wiki_id, before, after, scaffold, playbook)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")

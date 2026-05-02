@@ -414,6 +414,7 @@ body.modal-open {
 #wiki-lint-summary,
 #wiki-lint-history,
 #wiki-lint-playbook-output,
+#wiki-lint-repair-report-output,
 #wiki-lint-actions {
   white-space: pre-wrap;
   max-height: 240px;
