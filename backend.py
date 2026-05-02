@@ -46,25 +46,25 @@ def _default_llm_wikis() -> list[dict]:
     return [
         {
             "id": 1,
-            "subject": "LLM Systems",
+            "subject": "GranSyn Wiki",
             "status": "active",
             "health": "green",
             "last_indexed_at": now_iso,
-            "notes": "Core architecture and prompting patterns.",
-            "wiki_slug": "llm-systems",
-            "wiki_path": str(WIKI_ROOT_PATH / "llm-systems"),
-            "interview_status": "pending",
+            "notes": "Existing wiki discovered under 01-wikis.",
+            "wiki_slug": "gransyn-wiki",
+            "wiki_path": str(WIKI_ROOT_PATH / "gransyn-wiki"),
+            "interview_status": "completed",
         },
         {
             "id": 2,
-            "subject": "MLOps",
+            "subject": "Journal Wiki",
             "status": "active",
-            "health": "yellow",
+            "health": "green",
             "last_indexed_at": now_iso,
-            "notes": "Need refresh on deployment runbooks.",
-            "wiki_slug": "mlops",
-            "wiki_path": str(WIKI_ROOT_PATH / "mlops"),
-            "interview_status": "pending",
+            "notes": "Existing wiki discovered under 01-wikis.",
+            "wiki_slug": "journal-wiki",
+            "wiki_path": str(WIKI_ROOT_PATH / "journal-wiki"),
+            "interview_status": "completed",
         },
         {
             "id": 3,
@@ -458,8 +458,58 @@ def _init_karpathy_wiki_structure(subject: str) -> dict:
     }
 
 
+def _ensure_existing_wiki_tiles(state: dict) -> None:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    expected = [
+        {
+            "subject": "GranSyn Wiki",
+            "wiki_slug": "gransyn-wiki",
+            "wiki_path": str(WIKI_ROOT_PATH / "gransyn-wiki"),
+            "status": "active",
+            "health": "green",
+            "interview_status": "completed",
+            "notes": "Existing wiki discovered under 01-wikis.",
+        },
+        {
+            "subject": "Journal Wiki",
+            "wiki_slug": "journal-wiki",
+            "wiki_path": str(WIKI_ROOT_PATH / "journal-wiki"),
+            "status": "active",
+            "health": "green",
+            "interview_status": "completed",
+            "notes": "Existing wiki discovered under 01-wikis.",
+        },
+    ]
+
+    by_slug = {str(item.get("wiki_slug", "")): item for item in state["llm_wikis"]}
+    next_id = max((int(item.get("id", 0)) for item in state["llm_wikis"]), default=0) + 1
+
+    inserted: list[dict] = []
+    for item in expected:
+        if item["wiki_slug"] in by_slug:
+            continue
+        inserted.append(
+            {
+                "id": next_id,
+                "subject": item["subject"],
+                "status": item["status"],
+                "health": item["health"],
+                "last_indexed_at": now_iso,
+                "notes": item["notes"],
+                "wiki_slug": item["wiki_slug"],
+                "wiki_path": item["wiki_path"],
+                "interview_status": item["interview_status"],
+            }
+        )
+        next_id += 1
+
+    if inserted:
+        state["llm_wikis"] = inserted + state["llm_wikis"]
+
+
 def _list_llm_wikis(username: str, limit: int) -> list[dict]:
     state = _ensure_operator_state(username)
+    _ensure_existing_wiki_tiles(state)
     safe_limit = max(1, min(limit, 50))
     return state["llm_wikis"][:safe_limit]
 
