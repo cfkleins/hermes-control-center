@@ -261,6 +261,15 @@
 
         <section class="card" id="llm-wikis-tiles-card">
           <h2>Subject Wiki Tiles</h2>
+          <div class="row">
+            <label for="wiki-filter-select">Filter</label>
+            <select id="wiki-filter-select">
+              <option value="all">all</option>
+              <option value="stale-first">stale first</option>
+              <option value="missing-interview-first">missing interview first</option>
+              <option value="missing-path">missing path</option>
+            </select>
+          </div>
           <div id="llm-wikis-grid" class="wiki-grid">
             <p class="status small">No wikis loaded.</p>
           </div>

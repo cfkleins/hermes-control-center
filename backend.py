@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from itertools import count
 from pathlib import Path
 from random import randint, uniform
@@ -528,11 +528,67 @@ def _ensure_existing_wiki_tiles(state: dict) -> None:
     state["llm_wikis"] = normalized_front + rest
 
 
+def _parse_iso_datetime(value: str) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        normalized = raw.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _wiki_kpi_view(item: dict) -> dict:
+    now = datetime.now(timezone.utc)
+    last_indexed_raw = str(item.get("last_indexed_at", ""))
+    last_indexed_dt = _parse_iso_datetime(last_indexed_raw)
+
+    indexed_age_minutes: int | None = None
+    indexed_age_bucket = "unknown"
+    is_stale = False
+    if last_indexed_dt is not None:
+        delta = now - last_indexed_dt
+        indexed_age_minutes = max(0, int(delta.total_seconds() // 60))
+        if delta <= timedelta(hours=24):
+            indexed_age_bucket = "fresh"
+        elif delta <= timedelta(hours=72):
+            indexed_age_bucket = "aging"
+        else:
+            indexed_age_bucket = "stale"
+            is_stale = True
+
+    wiki_path = Path(str(item.get("wiki_path", "")).strip())
+    path_exists = wiki_path.exists() if str(wiki_path) else False
+
+    interview_path = Path(str(item.get("interview_path") or "").strip())
+    if not str(interview_path):
+        interview_path = wiki_path / "setup-interview.md"
+    interview_exists = interview_path.exists() if str(interview_path) else False
+
+    interview_status = str(item.get("interview_status", "pending"))
+    interview_complete = interview_status == "completed"
+
+    return {
+        **item,
+        "indexed_age_minutes": indexed_age_minutes,
+        "indexed_age_bucket": indexed_age_bucket,
+        "is_stale": is_stale,
+        "path_exists": path_exists,
+        "interview_path": str(interview_path),
+        "interview_exists": interview_exists,
+        "interview_complete": interview_complete,
+    }
+
+
 def _list_llm_wikis(username: str, limit: int) -> list[dict]:
     state = _ensure_operator_state(username)
     _ensure_existing_wiki_tiles(state)
     safe_limit = max(1, min(limit, 50))
-    return state["llm_wikis"][:safe_limit]
+    return [_wiki_kpi_view(item) for item in state["llm_wikis"][:safe_limit]]
 
 
 def _create_llm_wiki(username: str, payload: LlmWikiPayload) -> dict:

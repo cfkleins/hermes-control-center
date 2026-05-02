@@ -326,6 +326,12 @@ button.ghost {
 .wiki-pill.health-green { border-color: #2b7f55; color: #7ad5a6; }
 .wiki-pill.health-yellow { border-color: #8a7228; color: #f0d98f; }
 .wiki-pill.health-red { border-color: #8a2f2f; color: #ffb0b0; }
+.wiki-pill.age-fresh { border-color: #2b7f55; color: #7ad5a6; }
+.wiki-pill.age-aging { border-color: #8a7228; color: #f0d98f; }
+.wiki-pill.age-stale { border-color: #8a2f2f; color: #ffb0b0; }
+.wiki-pill.path-ok, .wiki-pill.interview-ok { border-color: #2b7f55; color: #7ad5a6; }
+.wiki-pill.path-missing, .wiki-pill.interview-missing { border-color: #8a2f2f; color: #ffb0b0; }
+.wiki-tile.wiki-stale { border-color: #8a2f2f; }
 
 #wiki-interview-content {
   min-height: 240px;

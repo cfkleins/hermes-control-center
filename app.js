@@ -175,6 +175,7 @@ const wikiRefreshBtn = document.getElementById("wiki-refresh-btn");
 const wikiEditingEl = document.getElementById("wiki-editing");
 const wikiStatusEl = document.getElementById("wiki-status");
 const llmWikisGrid = document.getElementById("llm-wikis-grid");
+const wikiFilterSelect = document.getElementById("wiki-filter-select");
 const wikiInterviewTargetEl = document.getElementById("wiki-interview-target");
 const wikiInterviewStatusSelect = document.getElementById("wiki-interview-status");
 const wikiInterviewContentInput = document.getElementById("wiki-interview-content");
@@ -848,27 +849,46 @@ function renderTimeline(items) {
 function renderWikis(items) {
   if (!llmWikisGrid) return;
   const isAdmin = activeRole === "admin";
-  llmWikisGrid.innerHTML = items.length
-    ? items
-        .map(
-          (item) => `<article class="wiki-tile" data-wiki-id="${item.id}">
+  const mode = wikiFilterSelect?.value || "all";
+
+  let ordered = Array.isArray(items) ? [...items] : [];
+  if (mode === "stale-first") {
+    ordered.sort((a, b) => Number(Boolean(b.is_stale)) - Number(Boolean(a.is_stale)));
+  } else if (mode === "missing-interview-first") {
+    ordered.sort((a, b) => Number(Boolean(!b.interview_exists)) - Number(Boolean(!a.interview_exists)));
+  } else if (mode === "missing-path") {
+    ordered = ordered.filter((item) => !item.path_exists);
+  }
+
+  llmWikisGrid.innerHTML = ordered.length
+    ? ordered
+        .map((item) => {
+          const ageLabel = item.indexed_age_minutes == null ? "age: unknown" : `age: ${item.indexed_age_minutes}m`;
+          const staleLabel = item.indexed_age_bucket || "unknown";
+          const pathLabel = item.path_exists ? "path: ok" : "path: missing";
+          const interviewLabel = item.interview_exists ? `interview: ${item.interview_status || "pending"}` : "interview: missing";
+          return `<article class="wiki-tile ${item.is_stale ? "wiki-stale" : ""}" data-wiki-id="${item.id}">
             <h3>${item.subject}</h3>
             <div class="wiki-meta">
               <span class="wiki-pill">status: ${item.status}</span>
               <span class="wiki-pill health-${item.health}">health: ${item.health}</span>
+              <span class="wiki-pill age-${staleLabel}">${ageLabel}</span>
+              <span class="wiki-pill path-${item.path_exists ? "ok" : "missing"}">${pathLabel}</span>
+              <span class="wiki-pill interview-${item.interview_exists ? "ok" : "missing"}">${interviewLabel}</span>
             </div>
             <p class="small status">Last indexed: ${item.last_indexed_at}</p>
             <p class="small">${item.notes || "--"}</p>
             <p class="small status">Path: ${item.wiki_path || "--"}</p>
-            <p class="small status">Interview: ${item.interview_status || "--"}</p>
+            <p class="small status">Interview file: ${item.interview_path || "--"}</p>
             <div class="row alert-actions">
               <button class="ghost" data-wiki-edit="${item.id}" ${isAdmin ? "" : "disabled"}>Load to Editor</button>
+              <button class="ghost" data-wiki-interview-open="${item.id}">Open Interview</button>
               <button class="ghost" data-wiki-touch="${item.id}" ${isAdmin ? "" : "disabled"}>Mark Indexed Now</button>
             </div>
-          </article>`
-        )
+          </article>`;
+        })
         .join("")
-    : '<p class="status small">No wikis loaded.</p>';
+    : '<p class="status small">No wikis loaded for this filter.</p>';
 }
 
 function resetWikiEditor() {
@@ -1132,6 +1152,7 @@ if (wikiClearBtn) wikiClearBtn.addEventListener("click", () => {
   if (wikiStatusEl) wikiStatusEl.textContent = "Editor reset.";
 });
 if (wikiRefreshBtn) wikiRefreshBtn.addEventListener("click", loadWikis);
+if (wikiFilterSelect) wikiFilterSelect.addEventListener("change", loadWikis);
 if (wikiInterviewLoadBtn) wikiInterviewLoadBtn.addEventListener("click", loadInterviewForSelectedWiki);
 if (wikiInterviewSaveBtn) wikiInterviewSaveBtn.addEventListener("click", async () => {
   await saveInterviewForSelectedWiki(false);
@@ -1145,12 +1166,13 @@ if (llmWikisGrid) {
     if (!(target instanceof HTMLElement)) return;
     const editId = target.getAttribute("data-wiki-edit");
     const touchId = target.getAttribute("data-wiki-touch");
-    if (!editId && !touchId) return;
+    const interviewOpenId = target.getAttribute("data-wiki-interview-open");
+    if (!editId && !touchId && !interviewOpenId) return;
 
     try {
       const res = await authFetch("/api/llm-wikis?limit=50");
       const data = await res.json();
-      const match = (data.items || []).find((item) => item.id === Number(editId || touchId));
+      const match = (data.items || []).find((item) => item.id === Number(editId || touchId || interviewOpenId));
       if (!match) return;
 
       if (editId) {
@@ -1187,6 +1209,14 @@ if (llmWikisGrid) {
         if (wikiStatusEl) wikiStatusEl.textContent = `Updated last indexed time for ${match.subject}.`;
         await loadWikis();
         await loadTimeline();
+      }
+
+      if (interviewOpenId) {
+        selectedWikiId = match.id;
+        selectedWikiSubject = match.subject || "";
+        resetInterviewEditor();
+        await loadInterviewForSelectedWiki();
+        if (wikiStatusEl) wikiStatusEl.textContent = `Opened setup interview for ${match.subject}.`;
       }
     } catch (err) {
       console.error(err);
