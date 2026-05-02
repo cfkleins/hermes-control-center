@@ -252,11 +252,59 @@
           </div>
           <div class="row">
             <button id="wiki-save-btn">Create Wiki Tile</button>
+            <button id="wiki-open-wizard" class="ghost">Open 6-Step Wizard</button>
             <button id="wiki-clear-btn" class="ghost">Clear Editor</button>
             <button id="wiki-refresh-btn" class="ghost">Refresh Wikis</button>
           </div>
           <p id="wiki-editing" class="status small">Editing: new tile</p>
           <p id="wiki-status" class="status">Login to manage LLM wikis.</p>
+        </section>
+
+        <div id="wiki-wizard-backdrop" class="modal-backdrop hidden"></div>
+        <section class="card wizard-modal hidden" id="wiki-wizard-card" aria-modal="true" role="dialog" aria-labelledby="wiki-wizard-title">
+          <div class="row">
+            <h2 id="wiki-wizard-title" style="margin:0;">New Wiki Wizard (Karpathy Method)</h2>
+            <button id="wiki-wizard-close" class="ghost">Close</button>
+          </div>
+          <p class="status small">6-step flow: Scope → Path → Schema → Sources → Seeds → Initialize</p>
+          <p id="wizard-step-label" class="status small">Step 1/6 · Scope</p>
+          <div class="settings-grid">
+            <label for="wizard-subject-input">Subject</label>
+            <input id="wizard-subject-input" type="text" placeholder="Neurosymbolic Systems" />
+
+            <label for="wizard-scope-input">Scope (in-domain)</label>
+            <textarea id="wizard-scope-input" rows="3" placeholder="What this wiki should cover in detail"></textarea>
+
+            <label for="wizard-outscope-input">Out of Scope</label>
+            <textarea id="wizard-outscope-input" rows="2" placeholder="What this wiki should avoid"></textarea>
+
+            <label for="wizard-slug-input">Wiki Slug</label>
+            <input id="wizard-slug-input" type="text" placeholder="neurosymbolic-systems" />
+
+            <label for="wizard-root-input">Wiki Root Path</label>
+            <input id="wizard-root-input" type="text" value="/mnt/c/Users/cfkle/My Drive/cfk master/01-wikis" />
+
+            <label for="wizard-tags-input">Taxonomy Tags (comma-separated)</label>
+            <textarea id="wizard-tags-input" rows="2" placeholder="model, architecture, benchmark, company, person"></textarea>
+
+            <label for="wizard-entities-input">Seed Entities (one per line)</label>
+            <textarea id="wizard-entities-input" rows="3" placeholder="Entity A&#10;Entity B"></textarea>
+
+            <label for="wizard-concepts-input">Seed Concepts (one per line)</label>
+            <textarea id="wizard-concepts-input" rows="3" placeholder="Concept A&#10;Concept B"></textarea>
+
+            <label for="wizard-sources-input">Seed Sources (one per line)</label>
+            <textarea id="wizard-sources-input" rows="3" placeholder="https://...&#10;/path/to/doc.pdf"></textarea>
+          </div>
+          <div class="row">
+            <button id="wizard-prev-step" class="ghost">← Prev Step</button>
+            <button id="wizard-next-step" class="ghost">Next Step →</button>
+            <button id="wizard-validate-btn" class="ghost">Validate Blueprint</button>
+            <button id="wizard-init-btn">Initialize Wiki</button>
+            <button id="wizard-reset-btn" class="ghost">Reset Wizard</button>
+          </div>
+          <p id="wizard-status" class="status">Wizard idle.</p>
+          <pre id="wizard-artifacts" class="status small">No artifacts yet.</pre>
         </section>
 
         <section class="card" id="llm-wikis-tiles-card">
@@ -266,7 +314,7 @@
             <select id="wiki-filter-select">
               <option value="all">all</option>
               <option value="stale-first">stale first</option>
-              <option value="missing-interview-first">missing interview first</option>
+              <option value="missing-interview-first">missing charter notes first</option>
               <option value="missing-path">missing path</option>
             </select>
           </div>
@@ -276,25 +324,25 @@
         </section>
 
         <section class="card" id="wiki-interview-card">
-          <h2>Setup Interview</h2>
+          <h2>Wiki Charter & Intake Notes</h2>
           <p id="wiki-interview-target" class="status small">No wiki selected.</p>
           <div class="settings-grid">
-            <label for="wiki-interview-status">Interview Status</label>
+            <label for="wiki-interview-status">Charter Status</label>
             <select id="wiki-interview-status">
               <option value="pending">pending</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
             </select>
 
-            <label for="wiki-interview-content">Interview Markdown</label>
-            <textarea id="wiki-interview-content" rows="12" placeholder="# Setup Interview\n\nAnswer the intake questions..."></textarea>
+            <label for="wiki-interview-content">Charter Markdown</label>
+            <textarea id="wiki-interview-content" rows="12" placeholder="# Wiki Charter & Intake Notes\n\nWizard-captured schema inputs + follow-up operating notes..."></textarea>
           </div>
           <div class="row">
             <button id="wiki-interview-load" class="ghost">Load from selected tile</button>
-            <button id="wiki-interview-save">Save Interview</button>
+            <button id="wiki-interview-save">Save Charter</button>
             <button id="wiki-interview-complete" class="ghost">Mark Complete</button>
           </div>
-          <p id="wiki-interview-status-msg" class="status">Select a wiki tile, then load interview.</p>
+          <p id="wiki-interview-status-msg" class="status">Select a wiki tile, then load charter notes.</p>
         </section>
       </div>
     </main>

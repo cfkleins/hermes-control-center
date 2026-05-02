@@ -170,6 +170,7 @@ const wikiHealthSelect = document.getElementById("wiki-health-select");
 const wikiLastIndexedInput = document.getElementById("wiki-last-indexed-input");
 const wikiNotesInput = document.getElementById("wiki-notes-input");
 const wikiSaveBtn = document.getElementById("wiki-save-btn");
+const wikiOpenWizardBtn = document.getElementById("wiki-open-wizard");
 const wikiClearBtn = document.getElementById("wiki-clear-btn");
 const wikiRefreshBtn = document.getElementById("wiki-refresh-btn");
 const wikiEditingEl = document.getElementById("wiki-editing");
@@ -184,6 +185,26 @@ const wikiInterviewSaveBtn = document.getElementById("wiki-interview-save");
 const wikiInterviewCompleteBtn = document.getElementById("wiki-interview-complete");
 const wikiInterviewStatusMsgEl = document.getElementById("wiki-interview-status-msg");
 
+const wizardSubjectInput = document.getElementById("wizard-subject-input");
+const wizardScopeInput = document.getElementById("wizard-scope-input");
+const wizardOutscopeInput = document.getElementById("wizard-outscope-input");
+const wizardSlugInput = document.getElementById("wizard-slug-input");
+const wizardRootInput = document.getElementById("wizard-root-input");
+const wizardTagsInput = document.getElementById("wizard-tags-input");
+const wizardEntitiesInput = document.getElementById("wizard-entities-input");
+const wizardConceptsInput = document.getElementById("wizard-concepts-input");
+const wizardSourcesInput = document.getElementById("wizard-sources-input");
+const wizardValidateBtn = document.getElementById("wizard-validate-btn");
+const wizardInitBtn = document.getElementById("wizard-init-btn");
+const wizardResetBtn = document.getElementById("wizard-reset-btn");
+const wizardPrevStepBtn = document.getElementById("wizard-prev-step");
+const wizardNextStepBtn = document.getElementById("wizard-next-step");
+const wizardStepLabelEl = document.getElementById("wizard-step-label");
+const wizardStatusEl = document.getElementById("wizard-status");
+const wizardArtifactsEl = document.getElementById("wizard-artifacts");
+const wikiWizardCloseBtn = document.getElementById("wiki-wizard-close");
+const wikiWizardBackdrop = document.getElementById("wiki-wizard-backdrop");
+
 let selectedWikiId = null;
 let selectedWikiSubject = "";
 let voicePointer = 0;
@@ -194,6 +215,82 @@ let vadSource = null;
 let vadRafId = null;
 let vadLastSpeechAt = 0;
 let isListeningActive = false;
+let wizardStepIndex = 0;
+let wizardLastFocusedEl = null;
+
+const wizardSteps = [
+  { label: "Scope", focus: () => wizardSubjectInput || wizardScopeInput },
+  { label: "Path", focus: () => wizardRootInput || wizardSlugInput },
+  { label: "Schema", focus: () => wizardTagsInput },
+  { label: "Sources", focus: () => wizardSourcesInput },
+  { label: "Seeds", focus: () => wizardEntitiesInput || wizardConceptsInput },
+  { label: "Initialize", focus: () => wizardInitBtn }
+];
+
+function renderWizardStep() {
+  const step = wizardSteps[wizardStepIndex] || wizardSteps[0];
+  if (wizardStepLabelEl) wizardStepLabelEl.textContent = `Step ${wizardStepIndex + 1}/6 · ${step.label}`;
+  if (wizardPrevStepBtn) wizardPrevStepBtn.disabled = wizardStepIndex === 0;
+  if (wizardNextStepBtn) wizardNextStepBtn.disabled = wizardStepIndex >= wizardSteps.length - 1;
+}
+
+function moveWizardStep(delta) {
+  wizardStepIndex = Math.max(0, Math.min(wizardSteps.length - 1, wizardStepIndex + delta));
+  renderWizardStep();
+  const el = wizardSteps[wizardStepIndex]?.focus?.();
+  if (el && typeof el.focus === "function") el.focus();
+}
+
+function openWizardModal() {
+  const card = document.getElementById("wiki-wizard-card");
+  wizardLastFocusedEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (card) card.classList.remove("hidden");
+  if (wikiWizardBackdrop) wikiWizardBackdrop.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  renderWizardStep();
+  const el = wizardSteps[wizardStepIndex]?.focus?.();
+  if (el && typeof el.focus === "function") el.focus();
+}
+
+function closeWizardModal() {
+  const card = document.getElementById("wiki-wizard-card");
+  if (card) card.classList.add("hidden");
+  if (wikiWizardBackdrop) wikiWizardBackdrop.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+  if (wizardLastFocusedEl && typeof wizardLastFocusedEl.focus === "function") {
+    wizardLastFocusedEl.focus();
+  }
+}
+
+function isWizardModalOpen() {
+  const card = document.getElementById("wiki-wizard-card");
+  return Boolean(card && !card.classList.contains("hidden"));
+}
+
+function getWizardFocusableElements() {
+  const card = document.getElementById("wiki-wizard-card");
+  if (!card) return [];
+  return Array.from(
+    card.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+  ).filter((el) => el.offsetParent !== null);
+}
+
+function trapWizardModalFocus(event) {
+  if (!isWizardModalOpen() || event.key !== "Tab") return;
+  const focusables = getWizardFocusableElements();
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  const active = document.activeElement;
+
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 
 function formatRemainingSeconds(totalSeconds) {
   const safe = Math.max(0, Math.floor(totalSeconds));
@@ -835,6 +932,113 @@ stopListening.addEventListener("click", () => {
   transcript.textContent = "(waiting)";
 });
 
+function splitLines(input) {
+  return String(input || "")
+    .split("\n")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function splitCsv(input) {
+  return String(input || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function slugifyText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "wiki";
+}
+
+function buildWizardPayload() {
+  const subject = wizardSubjectInput?.value?.trim() || "";
+  return {
+    subject,
+    scope: wizardScopeInput?.value?.trim() || "",
+    out_of_scope: wizardOutscopeInput?.value?.trim() || "",
+    wiki_slug: (wizardSlugInput?.value?.trim() || slugifyText(subject)),
+    wiki_root_path: wizardRootInput?.value?.trim() || "/mnt/c/Users/cfkle/My Drive/cfk master/01-wikis",
+    status: "planned",
+    health: "green",
+    notes: `Karpathy wizard initialized for ${subject}`,
+    seed_sources: splitLines(wizardSourcesInput?.value),
+    seed_entities: splitLines(wizardEntitiesInput?.value),
+    seed_concepts: splitLines(wizardConceptsInput?.value),
+    taxonomy_tags: splitCsv(wizardTagsInput?.value)
+  };
+}
+
+async function validateWizardBlueprint() {
+  if (!wizardStatusEl) return;
+  const payload = buildWizardPayload();
+  if (!payload.subject || !payload.scope) {
+    wizardStatusEl.textContent = "Subject and scope are required for validation.";
+    return;
+  }
+  try {
+    const res = await authFetch("/api/llm-wikis/validate-blueprint", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    wizardStatusEl.textContent = `Readiness: ${data.readiness.toUpperCase()} (${data.readiness_score}/100) · Path: ${data.wiki_path}`;
+    if (wizardArtifactsEl) wizardArtifactsEl.textContent = JSON.stringify(data.checks, null, 2);
+  } catch (err) {
+    console.error(err);
+    wizardStatusEl.textContent = "Blueprint validation failed.";
+  }
+}
+
+async function initializeWikiFromWizard() {
+  if (!wizardStatusEl) return;
+  if (activeRole !== "admin") {
+    wizardStatusEl.textContent = "Read-only: admin role required to initialize wikis.";
+    return;
+  }
+  const payload = buildWizardPayload();
+  if (!payload.subject || !payload.scope) {
+    wizardStatusEl.textContent = "Subject and scope are required.";
+    return;
+  }
+  try {
+    const res = await authFetch("/api/llm-wikis/init", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    wizardStatusEl.textContent = `Initialized ${data.subject} at ${data.wiki_path}`;
+    if (wizardArtifactsEl) {
+      const files = Array.isArray(data.created_files) ? data.created_files.join("\n") : "(none reported)";
+      wizardArtifactsEl.textContent = `Created files:\n${files}`;
+    }
+    await loadWikis();
+    await loadTimeline();
+  } catch (err) {
+    console.error(err);
+    wizardStatusEl.textContent = "Wiki initialization failed.";
+  }
+}
+
+function resetWizard() {
+  wizardStepIndex = 0;
+  if (wizardSubjectInput) wizardSubjectInput.value = "";
+  if (wizardScopeInput) wizardScopeInput.value = "";
+  if (wizardOutscopeInput) wizardOutscopeInput.value = "";
+  if (wizardSlugInput) wizardSlugInput.value = "";
+  if (wizardTagsInput) wizardTagsInput.value = "";
+  if (wizardEntitiesInput) wizardEntitiesInput.value = "";
+  if (wizardConceptsInput) wizardConceptsInput.value = "";
+  if (wizardSourcesInput) wizardSourcesInput.value = "";
+  if (wizardStatusEl) wizardStatusEl.textContent = "Wizard reset.";
+  if (wizardArtifactsEl) wizardArtifactsEl.textContent = "No artifacts yet.";
+  renderWizardStep();
+}
+
 function renderTimeline(items) {
   timelineEvents.innerHTML = items.length
     ? items
@@ -866,7 +1070,7 @@ function renderWikis(items) {
           const ageLabel = item.indexed_age_minutes == null ? "age: unknown" : `age: ${item.indexed_age_minutes}m`;
           const staleLabel = item.indexed_age_bucket || "unknown";
           const pathLabel = item.path_exists ? "path: ok" : "path: missing";
-          const interviewLabel = item.interview_exists ? `interview: ${item.interview_status || "pending"}` : "interview: missing";
+          const interviewLabel = item.interview_exists ? `charter: ${item.interview_status || "pending"}` : "charter: missing";
           return `<article class="wiki-tile ${item.is_stale ? "wiki-stale" : ""}" data-wiki-id="${item.id}">
             <h3>${item.subject}</h3>
             <div class="wiki-meta">
@@ -879,11 +1083,14 @@ function renderWikis(items) {
             <p class="small status">Last indexed: ${item.last_indexed_at}</p>
             <p class="small">${item.notes || "--"}</p>
             <p class="small status">Path: ${item.wiki_path || "--"}</p>
-            <p class="small status">Interview file: ${item.interview_path || "--"}</p>
+            <p class="small status">Charter file: ${item.interview_path || "--"}</p>
             <div class="row alert-actions">
               <button class="ghost" data-wiki-edit="${item.id}" ${isAdmin ? "" : "disabled"}>Load to Editor</button>
-              <button class="ghost" data-wiki-interview-open="${item.id}">Open Interview</button>
+              <button class="ghost" data-wiki-interview-open="${item.id}">Open Charter</button>
               <button class="ghost" data-wiki-touch="${item.id}" ${isAdmin ? "" : "disabled"}>Mark Indexed Now</button>
+              <button class="ghost" data-wiki-ingest="${item.id}">Ingest Source</button>
+              <button class="ghost" data-wiki-query="${item.id}">Ask Wiki</button>
+              <button class="ghost" data-wiki-lint="${item.id}">Lint Health</button>
             </div>
           </article>`;
         })
@@ -912,8 +1119,8 @@ function resetInterviewEditor() {
   if (wikiInterviewStatusSelect) wikiInterviewStatusSelect.value = "pending";
   if (wikiInterviewContentInput) wikiInterviewContentInput.value = "";
   if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = selectedWikiId
-    ? "Load interview from selected tile."
-    : "Select a wiki tile, then load interview.";
+    ? "Load charter notes from selected tile."
+    : "Select a wiki tile, then load charter notes.";
 }
 
 async function loadInterviewForSelectedWiki() {
@@ -927,11 +1134,11 @@ async function loadInterviewForSelectedWiki() {
     if (wikiInterviewStatusSelect) wikiInterviewStatusSelect.value = data.status || "pending";
     if (wikiInterviewContentInput) wikiInterviewContentInput.value = data.content || "";
     if (wikiInterviewTargetEl) wikiInterviewTargetEl.textContent = `Selected wiki: #${data.wiki_id} ${data.subject}`;
-    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Interview loaded from ${data.interview_path}.`;
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Charter loaded from ${data.interview_path}.`;
     setAuthUi();
   } catch (err) {
     console.error(err);
-    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to load setup interview.";
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to load charter notes.";
   }
 }
 
@@ -941,7 +1148,7 @@ async function saveInterviewForSelectedWiki(forceComplete = false) {
     return;
   }
   if (activeRole !== "admin") {
-    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Read-only: admin role required to save interview.";
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Read-only: admin role required to save charter notes.";
     return;
   }
   try {
@@ -954,13 +1161,13 @@ async function saveInterviewForSelectedWiki(forceComplete = false) {
     });
     const data = await res.json();
     if (wikiInterviewStatusSelect) wikiInterviewStatusSelect.value = status;
-    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Interview saved (${status}) at ${data.interview_path}.`;
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Charter saved (${status}) at ${data.interview_path}.`;
     await loadWikis();
     await loadTimeline();
     setAuthUi();
   } catch (err) {
     console.error(err);
-    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to save setup interview.";
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to save charter notes.";
   }
 }
 
@@ -1010,7 +1217,7 @@ async function createWiki() {
         body: JSON.stringify(payload)
       });
       const created = await res.json();
-      wikiStatusEl.textContent = `Wiki tile created. Karpathy gist process initialized at ${created.wiki_path}; setup interview: ${created.interview_path}`;
+      wikiStatusEl.textContent = `Wiki tile created. Karpathy process initialized at ${created.wiki_path}; charter notes: ${created.interview_path}`;
     }
     resetWikiEditor();
     await loadWikis();
@@ -1152,6 +1359,7 @@ if (wikiClearBtn) wikiClearBtn.addEventListener("click", () => {
   if (wikiStatusEl) wikiStatusEl.textContent = "Editor reset.";
 });
 if (wikiRefreshBtn) wikiRefreshBtn.addEventListener("click", loadWikis);
+if (wikiOpenWizardBtn) wikiOpenWizardBtn.addEventListener("click", openWizardModal);
 if (wikiFilterSelect) wikiFilterSelect.addEventListener("change", loadWikis);
 if (wikiInterviewLoadBtn) wikiInterviewLoadBtn.addEventListener("click", loadInterviewForSelectedWiki);
 if (wikiInterviewSaveBtn) wikiInterviewSaveBtn.addEventListener("click", async () => {
@@ -1160,6 +1368,31 @@ if (wikiInterviewSaveBtn) wikiInterviewSaveBtn.addEventListener("click", async (
 if (wikiInterviewCompleteBtn) wikiInterviewCompleteBtn.addEventListener("click", async () => {
   await saveInterviewForSelectedWiki(true);
 });
+if (wizardValidateBtn) wizardValidateBtn.addEventListener("click", validateWizardBlueprint);
+if (wizardInitBtn) wizardInitBtn.addEventListener("click", initializeWikiFromWizard);
+if (wizardResetBtn) wizardResetBtn.addEventListener("click", resetWizard);
+if (wizardPrevStepBtn) wizardPrevStepBtn.addEventListener("click", () => moveWizardStep(-1));
+if (wizardNextStepBtn) wizardNextStepBtn.addEventListener("click", () => moveWizardStep(1));
+if (wikiWizardCloseBtn) wikiWizardCloseBtn.addEventListener("click", closeWizardModal);
+if (wikiWizardBackdrop) wikiWizardBackdrop.addEventListener("click", closeWizardModal);
+window.addEventListener("keydown", (event) => {
+  if (!isWizardModalOpen()) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeWizardModal();
+    return;
+  }
+  trapWizardModalFocus(event);
+});
+if (wizardSubjectInput && wizardSlugInput) {
+  wizardSubjectInput.addEventListener("input", () => {
+    if (!wizardSlugInput.value.trim()) {
+      wizardSlugInput.value = slugifyText(wizardSubjectInput.value);
+    }
+  });
+}
+renderWizardStep();
+closeWizardModal();
 if (llmWikisGrid) {
   llmWikisGrid.addEventListener("click", async (event) => {
     const target = event.target;
@@ -1167,12 +1400,15 @@ if (llmWikisGrid) {
     const editId = target.getAttribute("data-wiki-edit");
     const touchId = target.getAttribute("data-wiki-touch");
     const interviewOpenId = target.getAttribute("data-wiki-interview-open");
-    if (!editId && !touchId && !interviewOpenId) return;
+    const ingestId = target.getAttribute("data-wiki-ingest");
+    const queryId = target.getAttribute("data-wiki-query");
+    const lintId = target.getAttribute("data-wiki-lint");
+    if (!editId && !touchId && !interviewOpenId && !ingestId && !queryId && !lintId) return;
 
     try {
       const res = await authFetch("/api/llm-wikis?limit=50");
       const data = await res.json();
-      const match = (data.items || []).find((item) => item.id === Number(editId || touchId || interviewOpenId));
+      const match = (data.items || []).find((item) => item.id === Number(editId || touchId || interviewOpenId || ingestId || queryId || lintId));
       if (!match) return;
 
       if (editId) {
@@ -1216,7 +1452,17 @@ if (llmWikisGrid) {
         selectedWikiSubject = match.subject || "";
         resetInterviewEditor();
         await loadInterviewForSelectedWiki();
-        if (wikiStatusEl) wikiStatusEl.textContent = `Opened setup interview for ${match.subject}.`;
+        if (wikiStatusEl) wikiStatusEl.textContent = `Opened charter notes for ${match.subject}.`;
+      }
+
+      if (ingestId && wikiStatusEl) {
+        wikiStatusEl.textContent = `Ingest flow queued for ${match.subject}. (Next: source picker modal)`;
+      }
+      if (queryId && wikiStatusEl) {
+        wikiStatusEl.textContent = `Query flow queued for ${match.subject}. (Next: ask-wiki panel)`;
+      }
+      if (lintId && wikiStatusEl) {
+        wikiStatusEl.textContent = `Lint flow queued for ${match.subject}. (Next: health audit report)`;
       }
     } catch (err) {
       console.error(err);

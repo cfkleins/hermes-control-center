@@ -122,6 +122,21 @@ class WikiInterviewPayload(BaseModel):
     status: str = Field(pattern="^(pending|in_progress|completed)$")
 
 
+class WikiBlueprintPayload(BaseModel):
+    subject: str = Field(min_length=1, max_length=120)
+    scope: str = Field(min_length=1, max_length=2000)
+    out_of_scope: str = Field(min_length=0, max_length=2000, default="")
+    wiki_slug: str = Field(min_length=1, max_length=120)
+    wiki_root_path: str = Field(min_length=1, max_length=500)
+    status: str = Field(pattern="^(planned|active|blocked|maintenance|complete)$", default="planned")
+    health: str = Field(pattern="^(green|yellow|red)$", default="green")
+    notes: str = Field(min_length=0, max_length=500, default="")
+    seed_sources: list[str] = Field(default_factory=list)
+    seed_entities: list[str] = Field(default_factory=list)
+    seed_concepts: list[str] = Field(default_factory=list)
+    taxonomy_tags: list[str] = Field(default_factory=list)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -425,12 +440,183 @@ def _slugify(value: str) -> str:
     return base or "wiki"
 
 
-def _init_karpathy_wiki_structure(subject: str) -> dict:
-    slug = _slugify(subject)
-    wiki_dir = WIKI_ROOT_PATH / slug
+def _normalize_seed_list(items: list[str], max_items: int = 20) -> list[str]:
+    out: list[str] = []
+    for item in items or []:
+        cleaned = str(item).strip()
+        if cleaned and cleaned not in out:
+            out.append(cleaned)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _resolve_wiki_dir(root_path: str, slug: str) -> Path:
+    base = Path(root_path).expanduser()
+    if not str(base.resolve()).startswith(str(WIKI_ROOT_PATH.resolve())):
+        raise HTTPException(status_code=400, detail="wiki_root_path must stay under configured wiki root")
+    return base / slug
+
+
+def _build_karpathy_scaffold(
+    *,
+    subject: str,
+    scope: str,
+    out_of_scope: str,
+    tags: list[str],
+    seed_entities: list[str],
+    seed_concepts: list[str],
+    seed_sources: list[str],
+    wiki_dir: Path,
+    slug: str,
+) -> dict:
     created_at = datetime.now(timezone.utc)
     created_iso = created_at.isoformat()
     created_day = created_at.date().isoformat()
+
+    tags_block = "\n".join([f"- {tag}" for tag in tags]) if tags else "- model\n- architecture\n- dataset\n- benchmark\n- person\n- company\n- technique\n- comparison\n- timeline\n- open-question"
+    seed_entities_block = "\n".join([f"- {item}" for item in seed_entities]) if seed_entities else "- (none yet)"
+    seed_concepts_block = "\n".join([f"- {item}" for item in seed_concepts]) if seed_concepts else "- (none yet)"
+    seed_sources_block = "\n".join([f"- {item}" for item in seed_sources]) if seed_sources else "- (none yet)"
+
+    schema = f"""# Wiki Schema
+
+## Domain
+{subject}
+
+## Scope
+{scope}
+
+## Out of Scope
+{out_of_scope or '(not specified)'}
+
+## Conventions
+- File names: lowercase-kebab-case
+- Every page uses YAML frontmatter
+- Every page should include at least 2 outbound [[wikilinks]]
+- Log all changes in log.md
+- Add new pages to index.md immediately
+
+## Frontmatter
+```yaml
+---
+title: Page Title
+created: YYYY-MM-DD
+updated: YYYY-MM-DD
+type: entity | concept | comparison | query | summary
+tags: []
+sources: []
+---
+```
+
+## Tag Taxonomy
+{tags_block}
+
+## Page Thresholds
+- Create a page when concept/entity appears in 2+ sources OR is central to one source
+- Add to existing page for passing mentions
+- Split page over ~200 lines into sub-pages
+"""
+
+    index_md = f"""# Wiki Index
+
+> Last updated: {created_day} | Total pages: 0
+
+## Entities
+
+## Concepts
+
+## Comparisons
+
+## Queries
+"""
+
+    log_md = f"""# Wiki Log
+
+## [{created_day}] create | Wiki initialized
+- Subject: {subject}
+- Process: karpathy-llm-wiki bootstrap wizard
+- Root: {wiki_dir}
+- Slug: {slug}
+"""
+
+    interview_md = f"""# Wiki Charter & Intake Notes — {subject}
+
+_Status: pending_
+
+This document is generated from the wizard and serves two purposes:
+1) preserve schema-driving decisions used to create SCHEMA.md, and
+2) track post-init operating notes as the wiki evolves.
+
+## Schema-driving intake (captured by wizard)
+- Domain scope: {scope}
+- Out of scope: {out_of_scope or '(not specified)'}
+
+### Taxonomy tags used for SCHEMA.md
+{tags_block}
+
+### Seed entities (schema and index priorities)
+{seed_entities_block}
+
+### Seed concepts (schema and index priorities)
+{seed_concepts_block}
+
+### Seed sources (initial ingest queue)
+{seed_sources_block}
+
+## Follow-up charter notes (post-init)
+Use this section for changes after initialization:
+- taxonomy refinements
+- quality bar updates
+- ingest strategy decisions
+- curation policies
+
+## Optional prompts for future refinement
+1. Which schema fields need tightening after first ingest?
+2. Which entity/concept types are over- or under-represented?
+3. What quality bar should trigger "complete" status?
+
+Created at: {created_iso}
+"""
+
+    return {
+        "SCHEMA.md": schema,
+        "index.md": index_md,
+        "log.md": log_md,
+        "setup-interview.md": interview_md,
+    }
+
+
+def _init_karpathy_wiki_structure(subject: str) -> dict:
+    slug = _slugify(subject)
+    return _init_karpathy_wiki_from_blueprint(
+        subject=subject,
+        scope=f"Focused wiki for {subject}",
+        out_of_scope="",
+        wiki_slug=slug,
+        wiki_root_path=str(WIKI_ROOT_PATH),
+        status="planned",
+        health="green",
+        notes="",
+        seed_sources=[],
+        seed_entities=[],
+        seed_concepts=[],
+        taxonomy_tags=[],
+    )
+
+
+def _init_karpathy_wiki_from_blueprint(**kwargs) -> dict:
+    subject = str(kwargs.get("subject", "")).strip()
+    slug = _slugify(str(kwargs.get("wiki_slug", "") or subject))
+    wiki_root_path = str(kwargs.get("wiki_root_path", str(WIKI_ROOT_PATH))).strip() or str(WIKI_ROOT_PATH)
+    wiki_dir = _resolve_wiki_dir(wiki_root_path, slug)
+
+    scope = str(kwargs.get("scope", "")).strip() or f"Focused wiki for {subject}"
+    out_of_scope = str(kwargs.get("out_of_scope", "")).strip()
+    tags = _normalize_seed_list(kwargs.get("taxonomy_tags", []), max_items=40)
+    seed_entities = _normalize_seed_list(kwargs.get("seed_entities", []), max_items=30)
+    seed_concepts = _normalize_seed_list(kwargs.get("seed_concepts", []), max_items=30)
+    seed_sources = _normalize_seed_list(kwargs.get("seed_sources", []), max_items=50)
 
     (wiki_dir / "raw" / "articles").mkdir(parents=True, exist_ok=True)
     (wiki_dir / "raw" / "papers").mkdir(parents=True, exist_ok=True)
@@ -441,25 +627,29 @@ def _init_karpathy_wiki_structure(subject: str) -> dict:
     (wiki_dir / "comparisons").mkdir(parents=True, exist_ok=True)
     (wiki_dir / "queries").mkdir(parents=True, exist_ok=True)
 
-    schema = f"""# Wiki Schema\n\n## Domain\n{subject}\n\n## Conventions\n- File names: lowercase-kebab-case\n- Every page uses YAML frontmatter\n- Use [[wikilinks]] for cross-references\n- Log all changes in log.md\n\n## Frontmatter\n```yaml\n---\ntitle: Page Title\ncreated: YYYY-MM-DD\nupdated: YYYY-MM-DD\ntype: entity | concept | comparison | query | summary\ntags: []\nsources: []\n---\n```\n\n## Tag Taxonomy\n- model\n- architecture\n- dataset\n- benchmark\n- company\n- person\n- technique\n- comparison\n- timeline\n- open-question\n"""
-
-    index_md = f"""# Wiki Index\n\n> Last updated: {created_day} | Total pages: 0\n\n## Entities\n\n## Concepts\n\n## Comparisons\n\n## Queries\n"""
-
-    log_md = f"""# Wiki Log\n\n## [{created_day}] create | Wiki initialized\n- Subject: {subject}\n- Process: karpathy-llm-wiki bootstrap\n- Root: {wiki_dir}\n"""
-
-    interview_md = f"""# Setup Interview — {subject}\n\n_Status: pending_\n\nPlease answer these before first ingestion:\n\n1. What is the exact domain scope for this wiki?\n2. What are the top 5 entities that must exist first?\n3. What sources should be ingested first (URLs/files)?\n4. What tag taxonomy additions do you want beyond defaults?\n5. What quality bar should trigger "complete" status for this wiki?\n\nCreated at: {created_iso}\n"""
-
-    (wiki_dir / "SCHEMA.md").write_text(schema, encoding="utf-8")
-    (wiki_dir / "index.md").write_text(index_md, encoding="utf-8")
-    (wiki_dir / "log.md").write_text(log_md, encoding="utf-8")
-    interview_path = wiki_dir / "setup-interview.md"
-    interview_path.write_text(interview_md, encoding="utf-8")
+    files = _build_karpathy_scaffold(
+        subject=subject,
+        scope=scope,
+        out_of_scope=out_of_scope,
+        tags=tags,
+        seed_entities=seed_entities,
+        seed_concepts=seed_concepts,
+        seed_sources=seed_sources,
+        wiki_dir=wiki_dir,
+        slug=slug,
+    )
+    created_files: list[str] = []
+    for filename, content in files.items():
+        path = wiki_dir / filename
+        path.write_text(content, encoding="utf-8")
+        created_files.append(str(path))
 
     return {
         "wiki_slug": slug,
         "wiki_path": str(wiki_dir),
-        "interview_path": str(interview_path),
+        "interview_path": str(wiki_dir / "setup-interview.md"),
         "interview_status": "pending",
+        "created_files": created_files,
     }
 
 
@@ -610,7 +800,7 @@ def _create_llm_wiki(username: str, payload: LlmWikiPayload) -> dict:
     _add_timeline_event(
         username,
         "wiki",
-        f"Wiki created: {item['subject']} (Karpathy gist init + setup interview)",
+        f"Wiki created: {item['subject']} (Karpathy init + charter notes)",
         {"wiki_id": item["id"], "wiki_path": item["wiki_path"]},
     )
     return item
@@ -659,14 +849,18 @@ def _get_wiki_interview(username: str, wiki_id: int) -> dict:
         subject = str(wiki.get("subject", "Unknown Wiki"))
         created_iso = datetime.now(timezone.utc).isoformat()
         seed = (
-            f"# Setup Interview — {subject}\n\n"
+            f"# Wiki Charter & Intake Notes — {subject}\n\n"
             f"_Status: pending_\n\n"
-            "Please answer these before first ingestion:\n\n"
-            "1. What is the exact domain scope for this wiki?\n"
-            "2. What are the top 5 entities that must exist first?\n"
-            "3. What sources should be ingested first (URLs/files)?\n"
-            "4. What tag taxonomy additions do you want beyond defaults?\n"
-            "5. What quality bar should trigger \"complete\" status for this wiki?\n\n"
+            "This file captures schema-driving intake and post-init charter notes.\n\n"
+            "## Schema-driving intake\n"
+            "- Domain scope:\n"
+            "- Out of scope:\n"
+            "- Taxonomy tags:\n"
+            "- Seed entities:\n"
+            "- Seed concepts:\n"
+            "- Seed sources:\n\n"
+            "## Follow-up charter notes\n"
+            "-\n\n"
             f"Created at: {created_iso}\n"
         )
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -693,7 +887,7 @@ def _update_wiki_interview(username: str, wiki_id: int, payload: WikiInterviewPa
     _add_timeline_event(
         username,
         "wiki",
-        f"Setup interview updated: {wiki.get('subject', 'Unknown Wiki')}",
+        f"Charter notes updated: {wiki.get('subject', 'Unknown Wiki')}",
         {"wiki_id": wiki_id, "interview_status": payload.status},
     )
     return {
@@ -702,6 +896,67 @@ def _update_wiki_interview(username: str, wiki_id: int, payload: WikiInterviewPa
         "interview_path": str(path),
         "updated": True,
     }
+
+
+def _validate_wiki_blueprint(payload: WikiBlueprintPayload) -> dict:
+    slug = _slugify(payload.wiki_slug)
+    wiki_dir = _resolve_wiki_dir(payload.wiki_root_path, slug)
+    scope_ok = len(payload.scope.strip()) >= 20
+    taxonomy_ok = len(_normalize_seed_list(payload.taxonomy_tags, max_items=40)) >= 5
+    readiness_score = 0
+    readiness_score += 25 if payload.subject.strip() else 0
+    readiness_score += 25 if scope_ok else 0
+    readiness_score += 25 if taxonomy_ok else 0
+    readiness_score += 25 if len(_normalize_seed_list(payload.seed_entities, max_items=30)) >= 3 else 0
+    if readiness_score >= 85:
+        readiness = "green"
+    elif readiness_score >= 60:
+        readiness = "yellow"
+    else:
+        readiness = "red"
+
+    checks = {
+        "scope_defined": scope_ok,
+        "taxonomy_present": taxonomy_ok,
+        "index_and_log_planned": True,
+        "crosslink_rule_defined": True,
+        "under_allowed_root": str(wiki_dir.resolve()).startswith(str(WIKI_ROOT_PATH.resolve())),
+    }
+
+    return {
+        "wiki_slug": slug,
+        "wiki_path": str(wiki_dir),
+        "path_exists": wiki_dir.exists(),
+        "readiness": readiness,
+        "readiness_score": readiness_score,
+        "checks": checks,
+    }
+
+
+def _create_wiki_from_blueprint(username: str, payload: WikiBlueprintPayload) -> dict:
+    _require_admin(username)
+    state = _ensure_operator_state(username)
+    next_id = max((int(item.get("id", 0)) for item in state["llm_wikis"]), default=0) + 1
+
+    bootstrap = _init_karpathy_wiki_from_blueprint(**payload.model_dump())
+    item = {
+        "id": next_id,
+        "subject": payload.subject.strip(),
+        "status": payload.status,
+        "health": payload.health,
+        "last_indexed_at": datetime.now(timezone.utc).isoformat(),
+        "notes": payload.notes.strip() or f"Scope: {payload.scope.strip()[:120]}",
+        **bootstrap,
+    }
+    state["llm_wikis"].insert(0, item)
+    del state["llm_wikis"][50:]
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Wiki initialized via wizard: {item['subject']}",
+        {"wiki_id": item["id"], "wiki_path": item["wiki_path"], "slug": item["wiki_slug"]},
+    )
+    return item
 
 
 def _run_voice_command(username: str, transcript_text: str) -> dict:
@@ -944,6 +1199,18 @@ def put_settings(payload: SettingsPayload, x_session_token: str | None = Header(
 def get_llm_wikis(limit: int = 20, x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
     return {"items": _list_llm_wikis(username, limit)}
+
+
+@app.post("/api/llm-wikis/validate-blueprint")
+def validate_llm_wiki_blueprint(payload: WikiBlueprintPayload, x_session_token: str | None = Header(default=None)):
+    _require_operator(x_session_token)
+    return _validate_wiki_blueprint(payload)
+
+
+@app.post("/api/llm-wikis/init")
+def init_llm_wiki_blueprint(payload: WikiBlueprintPayload, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return _create_wiki_from_blueprint(username, payload)
 
 
 @app.post("/api/llm-wikis")

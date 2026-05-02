@@ -338,3 +338,38 @@ button.ghost {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   line-height: 1.35;
 }
+
+#wizard-artifacts {
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+  background: #0d1425;
+  border: 1px solid #33436a;
+  border-radius: 10px;
+  padding: 0.5rem;
+}
+
+.hidden { display: none !important; }
+
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 8, 20, 0.72);
+  z-index: 60;
+}
+
+.wizard-modal {
+  position: fixed;
+  top: 6vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(980px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+  z-index: 70;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
