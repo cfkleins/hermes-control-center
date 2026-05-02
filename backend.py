@@ -39,6 +39,36 @@ template_id_counter = count(1)
 operator_state: dict[str, dict] = {}
 
 
+def _default_llm_wikis() -> list[dict]:
+    now_iso = datetime.now(timezone.utc).isoformat()
+    return [
+        {
+            "id": 1,
+            "subject": "LLM Systems",
+            "status": "active",
+            "health": "green",
+            "last_indexed_at": now_iso,
+            "notes": "Core architecture and prompting patterns.",
+        },
+        {
+            "id": 2,
+            "subject": "MLOps",
+            "status": "active",
+            "health": "yellow",
+            "last_indexed_at": now_iso,
+            "notes": "Need refresh on deployment runbooks.",
+        },
+        {
+            "id": 3,
+            "subject": "Security",
+            "status": "maintenance",
+            "health": "yellow",
+            "last_indexed_at": now_iso,
+            "notes": "Session and RBAC hardening updates in progress.",
+        },
+    ]
+
+
 class LoginPayload(BaseModel):
     username: str = Field(min_length=1, max_length=100)
     pin: str = Field(min_length=1, max_length=20)
@@ -66,6 +96,14 @@ class AlertActionPayload(BaseModel):
 class PromptTemplatePayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     prompt: str = Field(min_length=1, max_length=4000)
+
+
+class LlmWikiPayload(BaseModel):
+    subject: str = Field(min_length=1, max_length=120)
+    status: str = Field(pattern="^(planned|active|blocked|maintenance|complete)$")
+    health: str = Field(pattern="^(green|yellow|red)$")
+    last_indexed_at: str = Field(min_length=1, max_length=64)
+    notes: str = Field(min_length=0, max_length=500)
 
 
 app.add_middleware(
@@ -126,6 +164,7 @@ def _ensure_operator_state(username: str) -> dict:
             "alerts": [],
             "alert_actions": {},
             "prompt_templates": [],
+            "llm_wikis": _default_llm_wikis(),
             "settings": _load_global_settings(),
         }
     return operator_state[username]
@@ -365,6 +404,49 @@ def _delete_prompt_template(username: str, template_id: int) -> None:
     _add_timeline_event(username, "prompt", f"Template deleted: #{template_id}", {"template_id": template_id})
 
 
+def _list_llm_wikis(username: str, limit: int) -> list[dict]:
+    state = _ensure_operator_state(username)
+    safe_limit = max(1, min(limit, 50))
+    return state["llm_wikis"][:safe_limit]
+
+
+def _create_llm_wiki(username: str, payload: LlmWikiPayload) -> dict:
+    _require_admin(username)
+    state = _ensure_operator_state(username)
+    next_id = max((int(item.get("id", 0)) for item in state["llm_wikis"]), default=0) + 1
+    item = {
+        "id": next_id,
+        "subject": payload.subject.strip(),
+        "status": payload.status,
+        "health": payload.health,
+        "last_indexed_at": payload.last_indexed_at,
+        "notes": payload.notes.strip(),
+    }
+    state["llm_wikis"].insert(0, item)
+    del state["llm_wikis"][50:]
+    _add_timeline_event(username, "wiki", f"Wiki created: {item['subject']}", {"wiki_id": item["id"]})
+    return item
+
+
+def _update_llm_wiki(username: str, wiki_id: int, payload: LlmWikiPayload) -> dict:
+    _require_admin(username)
+    state = _ensure_operator_state(username)
+    wiki = next((item for item in state["llm_wikis"] if int(item.get("id", -1)) == wiki_id), None)
+    if not wiki:
+        raise HTTPException(status_code=404, detail="Wiki not found")
+    wiki.update(
+        {
+            "subject": payload.subject.strip(),
+            "status": payload.status,
+            "health": payload.health,
+            "last_indexed_at": payload.last_indexed_at,
+            "notes": payload.notes.strip(),
+        }
+    )
+    _add_timeline_event(username, "wiki", f"Wiki updated: {wiki['subject']}", {"wiki_id": wiki_id})
+    return wiki
+
+
 def _run_voice_command(username: str, transcript_text: str) -> dict:
     state = _ensure_operator_state(username)
     normalized = transcript_text.strip()
@@ -599,6 +681,24 @@ def put_settings(payload: SettingsPayload, x_session_token: str | None = Header(
     _save_global_settings(data)
     _add_timeline_event(username, "settings", "Settings updated", data)
     return data
+
+
+@app.get("/api/llm-wikis")
+def get_llm_wikis(limit: int = 20, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return {"items": _list_llm_wikis(username, limit)}
+
+
+@app.post("/api/llm-wikis")
+def create_llm_wiki(payload: LlmWikiPayload, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return _create_llm_wiki(username, payload)
+
+
+@app.put("/api/llm-wikis/{wiki_id}")
+def update_llm_wiki(wiki_id: int, payload: LlmWikiPayload, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return _update_llm_wiki(username, wiki_id, payload)
 
 
 app.mount("/", StaticFiles(directory=".", html=True), name="static")

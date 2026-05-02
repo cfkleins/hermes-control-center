@@ -42,12 +42,14 @@ updateHeaderDatetime();
 setInterval(updateHeaderDatetime, 1000);
 
 function normalizeTabName(tabName) {
-  const allowed = new Set(["operations", "prompt-voice"]);
+  const allowed = new Set(["operations", "prompt-voice", "llm-wikis"]);
   return allowed.has(tabName) ? tabName : "operations";
 }
 
 function activeTabDisplayName(tabName) {
-  return tabName === "prompt-voice" ? "Prompt and Voice" : "Operations";
+  if (tabName === "prompt-voice") return "Prompt and Voice";
+  if (tabName === "llm-wikis") return "LLM Wikis";
+  return "Operations";
 }
 
 function activateTab(tabName, { persist = true } = {}) {
@@ -91,6 +93,8 @@ window.addEventListener("keydown", (event) => {
     activateTab("operations");
   } else if (event.key === "2") {
     activateTab("prompt-voice");
+  } else if (event.key === "3") {
+    activateTab("llm-wikis");
   }
 });
 
@@ -160,6 +164,19 @@ const saveSettingsBtn = document.getElementById("save-settings");
 const reloadSettingsBtn = document.getElementById("reload-settings");
 const settingsStatus = document.getElementById("settings-status");
 
+const wikiSubjectInput = document.getElementById("wiki-subject-input");
+const wikiStatusSelect = document.getElementById("wiki-status-select");
+const wikiHealthSelect = document.getElementById("wiki-health-select");
+const wikiLastIndexedInput = document.getElementById("wiki-last-indexed-input");
+const wikiNotesInput = document.getElementById("wiki-notes-input");
+const wikiSaveBtn = document.getElementById("wiki-save-btn");
+const wikiClearBtn = document.getElementById("wiki-clear-btn");
+const wikiRefreshBtn = document.getElementById("wiki-refresh-btn");
+const wikiEditingEl = document.getElementById("wiki-editing");
+const wikiStatusEl = document.getElementById("wiki-status");
+const llmWikisGrid = document.getElementById("llm-wikis-grid");
+
+let selectedWikiId = null;
 let voicePointer = 0;
 let vadAudioContext = null;
 let vadMediaStream = null;
@@ -307,7 +324,11 @@ function setAuthUi() {
   [providerInput, modelInput, voiceProfileSelect, timelineRefreshInput].forEach((el) => {
     if (el) el.disabled = !activeOperator || !isAdmin;
   });
+  [wikiSubjectInput, wikiStatusSelect, wikiHealthSelect, wikiLastIndexedInput, wikiNotesInput].forEach((el) => {
+    if (el) el.disabled = !activeOperator || !isAdmin;
+  });
   if (saveSettingsBtn) saveSettingsBtn.disabled = !activeOperator || !isAdmin;
+  if (wikiSaveBtn) wikiSaveBtn.disabled = !activeOperator || !isAdmin;
 
   if (headerRoleBadge) {
     const normalizedRole = activeOperator ? (activeRole || "operator") : "none";
@@ -813,6 +834,97 @@ function renderTimeline(items) {
     : '<li class="status small">No timeline events yet.</li>';
 }
 
+function renderWikis(items) {
+  if (!llmWikisGrid) return;
+  const isAdmin = activeRole === "admin";
+  llmWikisGrid.innerHTML = items.length
+    ? items
+        .map(
+          (item) => `<article class="wiki-tile" data-wiki-id="${item.id}">
+            <h3>${item.subject}</h3>
+            <div class="wiki-meta">
+              <span class="wiki-pill">status: ${item.status}</span>
+              <span class="wiki-pill health-${item.health}">health: ${item.health}</span>
+            </div>
+            <p class="small status">Last indexed: ${item.last_indexed_at}</p>
+            <p class="small">${item.notes || "--"}</p>
+            <div class="row alert-actions">
+              <button class="ghost" data-wiki-edit="${item.id}" ${isAdmin ? "" : "disabled"}>Load to Editor</button>
+              <button class="ghost" data-wiki-touch="${item.id}" ${isAdmin ? "" : "disabled"}>Mark Indexed Now</button>
+            </div>
+          </article>`
+        )
+        .join("")
+    : '<p class="status small">No wikis loaded.</p>';
+}
+
+function resetWikiEditor() {
+  selectedWikiId = null;
+  if (wikiSubjectInput) wikiSubjectInput.value = "";
+  if (wikiStatusSelect) wikiStatusSelect.value = "planned";
+  if (wikiHealthSelect) wikiHealthSelect.value = "green";
+  if (wikiLastIndexedInput) wikiLastIndexedInput.value = "";
+  if (wikiNotesInput) wikiNotesInput.value = "";
+  if (wikiSaveBtn) wikiSaveBtn.textContent = "Create Wiki Tile";
+  if (wikiEditingEl) wikiEditingEl.textContent = "Editing: new tile";
+}
+
+async function loadWikis() {
+  if (!wikiStatusEl) return;
+  try {
+    const res = await authFetch("/api/llm-wikis?limit=50");
+    const data = await res.json();
+    renderWikis(data.items || []);
+    wikiStatusEl.textContent = "Wiki tiles loaded.";
+  } catch (err) {
+    console.error(err);
+    wikiStatusEl.textContent = "Failed to load wiki tiles.";
+  }
+}
+
+async function createWiki() {
+  if (!wikiStatusEl) return;
+  if (activeRole !== "admin") {
+    wikiStatusEl.textContent = "Read-only: admin role required to create wiki tiles.";
+    return;
+  }
+  const subject = wikiSubjectInput?.value.trim() || "";
+  if (!subject) {
+    wikiStatusEl.textContent = "Subject is required.";
+    return;
+  }
+  const payload = {
+    subject,
+    status: wikiStatusSelect?.value || "planned",
+    health: wikiHealthSelect?.value || "yellow",
+    last_indexed_at: (wikiLastIndexedInput?.value || "").trim() || new Date().toISOString(),
+    notes: (wikiNotesInput?.value || "").trim()
+  };
+  try {
+    if (selectedWikiId) {
+      await authFetch(`/api/llm-wikis/${selectedWikiId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      wikiStatusEl.textContent = `Wiki tile #${selectedWikiId} updated.`;
+    } else {
+      await authFetch("/api/llm-wikis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      wikiStatusEl.textContent = "Wiki tile created.";
+    }
+    resetWikiEditor();
+    await loadWikis();
+    await loadTimeline();
+  } catch (err) {
+    console.error(err);
+    wikiStatusEl.textContent = "Failed to save wiki tile.";
+  }
+}
+
 function renderAlerts(items) {
   const isAdmin = activeRole === "admin";
   alertsList.innerHTML = items.length
@@ -938,6 +1050,64 @@ async function saveSettings() {
 
 saveSettingsBtn.addEventListener("click", saveSettings);
 reloadSettingsBtn.addEventListener("click", loadSettings);
+if (wikiSaveBtn) wikiSaveBtn.addEventListener("click", createWiki);
+if (wikiClearBtn) wikiClearBtn.addEventListener("click", () => {
+  resetWikiEditor();
+  if (wikiStatusEl) wikiStatusEl.textContent = "Editor reset.";
+});
+if (wikiRefreshBtn) wikiRefreshBtn.addEventListener("click", loadWikis);
+if (llmWikisGrid) {
+  llmWikisGrid.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const editId = target.getAttribute("data-wiki-edit");
+    const touchId = target.getAttribute("data-wiki-touch");
+    if (!editId && !touchId) return;
+
+    try {
+      const res = await authFetch("/api/llm-wikis?limit=50");
+      const data = await res.json();
+      const match = (data.items || []).find((item) => item.id === Number(editId || touchId));
+      if (!match) return;
+
+      if (editId) {
+        selectedWikiId = match.id;
+        if (wikiSubjectInput) wikiSubjectInput.value = match.subject || "";
+        if (wikiStatusSelect) wikiStatusSelect.value = match.status || "planned";
+        if (wikiHealthSelect) wikiHealthSelect.value = match.health || "yellow";
+        if (wikiLastIndexedInput) wikiLastIndexedInput.value = match.last_indexed_at || "";
+        if (wikiNotesInput) wikiNotesInput.value = match.notes || "";
+        if (wikiSaveBtn) wikiSaveBtn.textContent = `Update Wiki #${match.id}`;
+        if (wikiEditingEl) wikiEditingEl.textContent = `Editing: #${match.id} ${match.subject}`;
+        if (wikiStatusEl) wikiStatusEl.textContent = `Loaded wiki #${match.id} into editor.`;
+      }
+
+      if (touchId) {
+        if (activeRole !== "admin") {
+          if (wikiStatusEl) wikiStatusEl.textContent = "Read-only: admin role required to update wiki tiles.";
+          return;
+        }
+        await authFetch(`/api/llm-wikis/${match.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            subject: match.subject,
+            status: match.status,
+            health: match.health,
+            last_indexed_at: new Date().toISOString(),
+            notes: match.notes || ""
+          })
+        });
+        if (wikiStatusEl) wikiStatusEl.textContent = `Updated last indexed time for ${match.subject}.`;
+        await loadWikis();
+        await loadTimeline();
+      }
+    } catch (err) {
+      console.error(err);
+      if (wikiStatusEl) wikiStatusEl.textContent = "Wiki action failed.";
+    }
+  });
+}
 
 async function bootstrapData() {
   await refreshMetrics();
@@ -947,6 +1117,7 @@ async function bootstrapData() {
   await loadAlerts();
   await loadTimeline();
   await loadSettings();
+  await loadWikis();
 }
 
 async function restoreSession() {

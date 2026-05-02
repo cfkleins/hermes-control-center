@@ -22,6 +22,7 @@
     <nav class="tabs" aria-label="Main sections" role="tablist">
       <button class="tab-btn active" data-tab="operations" role="tab" aria-selected="true">Operations</button>
       <button class="tab-btn" data-tab="prompt-voice" role="tab" aria-selected="false">Prompt and Voice</button>
+      <button class="tab-btn" data-tab="llm-wikis" role="tab" aria-selected="false">LLM Wikis</button>
     </nav>
 
     <main>
@@ -100,6 +101,7 @@
               <option value="voice">Voice</option>
               <option value="alert">Alerts</option>
               <option value="settings">Settings</option>
+              <option value="wiki">Wikis</option>
             </select>
             <button id="refresh-timeline" class="ghost">Refresh Timeline</button>
           </div>
@@ -216,6 +218,52 @@
           <ul id="voice-events" class="history-list">
             <li class="status small">No voice events yet.</li>
           </ul>
+        </section>
+      </div>
+
+      <div class="layout tab-content" data-tab-section="llm-wikis">
+        <section class="card" id="llm-wikis-card">
+          <h2>LLM Wiki Manager</h2>
+          <div class="settings-grid">
+            <label for="wiki-subject-input">Subject</label>
+            <input id="wiki-subject-input" type="text" placeholder="Biology" />
+
+            <label for="wiki-status-select">Status</label>
+            <select id="wiki-status-select">
+              <option value="planned">planned</option>
+              <option value="active">active</option>
+              <option value="blocked">blocked</option>
+              <option value="maintenance">maintenance</option>
+              <option value="complete">complete</option>
+            </select>
+
+            <label for="wiki-health-select">Health</label>
+            <select id="wiki-health-select">
+              <option value="green">green</option>
+              <option value="yellow">yellow</option>
+              <option value="red">red</option>
+            </select>
+
+            <label for="wiki-last-indexed-input">Last Indexed At (ISO)</label>
+            <input id="wiki-last-indexed-input" type="text" placeholder="2026-05-01T00:00:00Z" />
+
+            <label for="wiki-notes-input">Notes</label>
+            <textarea id="wiki-notes-input" rows="4" placeholder="Coverage notes, next ingestion targets, gaps..."></textarea>
+          </div>
+          <div class="row">
+            <button id="wiki-save-btn">Create Wiki Tile</button>
+            <button id="wiki-clear-btn" class="ghost">Clear Editor</button>
+            <button id="wiki-refresh-btn" class="ghost">Refresh Wikis</button>
+          </div>
+          <p id="wiki-editing" class="status small">Editing: new tile</p>
+          <p id="wiki-status" class="status">Login to manage LLM wikis.</p>
+        </section>
+
+        <section class="card" id="llm-wikis-tiles-card">
+          <h2>Subject Wiki Tiles</h2>
+          <div id="llm-wikis-grid" class="wiki-grid">
+            <p class="status small">No wikis loaded.</p>
+          </div>
         </section>
       </div>
     </main>
