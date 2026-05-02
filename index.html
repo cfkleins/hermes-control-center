@@ -382,6 +382,17 @@
           <pre id="wiki-lint-playbook-output" class="status small">No playbook yet.</pre>
           <pre id="wiki-lint-repair-report-output" class="status small">No repair report yet.</pre>
           <pre id="wiki-lint-repair-report-artifacts" class="status small">No repair report artifacts loaded.</pre>
+          <div class="row">
+            <label><input id="wiki-lint-policy-enabled" type="checkbox" /> Auto-prune enabled</label>
+            <label for="wiki-lint-policy-cadence">Cadence</label>
+            <select id="wiki-lint-policy-cadence">
+              <option value="daily">daily</option>
+              <option value="weekly">weekly</option>
+            </select>
+            <button id="wiki-lint-policy-save" class="ghost">Save Auto-Prune Policy</button>
+            <button id="wiki-lint-policy-run" class="ghost">Run Policy Now</button>
+          </div>
+          <pre id="wiki-lint-policy-status" class="status small">Policy not loaded.</pre>
           <div id="wiki-lint-actions" class="status small">No missing scaffold actions yet.</div>
         </section>
 

@@ -1,0 +1,10 @@
+{
+  "wikis": {
+    "1": {
+      "enabled": true,
+      "keep_last": 3,
+      "cadence": "daily",
+      "updated_at": "2026-05-02T23:31:26.398751+00:00"
+    }
+  }
+}

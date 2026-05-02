@@ -15,6 +15,7 @@ app = FastAPI(title="Custom Ops UI Backend")
 
 SETTINGS_PATH = Path("settings.json")
 OPERATORS_PATH = Path("operators.json")
+REPAIR_POLICIES_PATH = Path("repair_report_policies.json")
 DEFAULT_SETTINGS = {
     "provider": "openai",
     "model": "gpt-5.3-codex",
@@ -194,6 +195,19 @@ def _save_global_settings(data: dict) -> None:
 def _load_operators() -> list[dict]:
     data = _load_json(OPERATORS_PATH, DEFAULT_OPERATORS)
     return data.get("operators", [])
+
+
+def _load_repair_policies() -> dict:
+    default = {"wikis": {}}
+    data = _load_json(REPAIR_POLICIES_PATH, default)
+    wikis = data.get("wikis") if isinstance(data, dict) else {}
+    if not isinstance(wikis, dict):
+        wikis = {}
+    return {"wikis": wikis}
+
+
+def _save_repair_policies(data: dict) -> None:
+    REPAIR_POLICIES_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def _get_operator_record(username: str) -> dict | None:
@@ -1460,6 +1474,44 @@ def _prune_repair_report_artifacts(username: str, wiki_id: int, keep_last: int =
     }
 
 
+def _get_repair_report_policy(username: str, wiki_id: int) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    all_policies = _load_repair_policies()
+    raw = all_policies.get("wikis", {}).get(str(wiki_id), {})
+    enabled = bool(raw.get("enabled", False))
+    keep_last = max(0, min(int(raw.get("keep_last", 10)), 500))
+    cadence = str(raw.get("cadence", "daily"))
+    if cadence not in {"daily", "weekly"}:
+        cadence = "daily"
+    return {"wiki_id": wiki_id, "subject": wiki.get("subject"), "enabled": enabled, "keep_last": keep_last, "cadence": cadence}
+
+
+def _set_repair_report_policy(username: str, wiki_id: int, enabled: bool, keep_last: int, cadence: str) -> dict:
+    _require_admin(username)
+    _find_wiki(username, wiki_id)
+    all_policies = _load_repair_policies()
+    if cadence not in {"daily", "weekly"}:
+        cadence = "daily"
+    normalized = {
+        "enabled": bool(enabled),
+        "keep_last": max(0, min(int(keep_last), 500)),
+        "cadence": cadence,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    all_policies.setdefault("wikis", {})[str(wiki_id)] = normalized
+    _save_repair_policies(all_policies)
+    _add_timeline_event(username, "wiki", "Repair report policy updated", {"wiki_id": wiki_id, **normalized})
+    return _get_repair_report_policy(username, wiki_id)
+
+
+def _run_repair_report_policy(username: str, wiki_id: int, force: bool = False) -> dict:
+    policy = _get_repair_report_policy(username, wiki_id)
+    if not policy.get("enabled") and not force:
+        return {"wiki_id": wiki_id, "ran": False, "reason": "policy_disabled", "policy": policy}
+    result = _prune_repair_report_artifacts(username, wiki_id, keep_last=int(policy.get("keep_last", 10)))
+    return {"wiki_id": wiki_id, "ran": True, "policy": policy, "result": result}
+
+
 def _run_guided_repair(username: str, wiki_id: int, payload: WikiRepairRunPayload) -> dict:
     _require_admin(username)
     before = _lint_wiki(username, wiki_id)
@@ -2158,6 +2210,37 @@ def wiki_lint_repair_report_artifacts_prune(
 ):
     username = _require_operator(x_session_token)
     return _prune_repair_report_artifacts(username, wiki_id, keep_last=keep_last)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint/repair-report/policy")
+def wiki_lint_repair_report_policy_get(
+    wiki_id: int,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _get_repair_report_policy(username, wiki_id)
+
+
+@app.put("/api/llm-wikis/{wiki_id}/lint/repair-report/policy")
+def wiki_lint_repair_report_policy_set(
+    wiki_id: int,
+    enabled: bool = False,
+    keep_last: int = 10,
+    cadence: str = "daily",
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _set_repair_report_policy(username, wiki_id, enabled=enabled, keep_last=keep_last, cadence=cadence)
+
+
+@app.post("/api/llm-wikis/{wiki_id}/lint/repair-report/policy/run")
+def wiki_lint_repair_report_policy_run(
+    wiki_id: int,
+    force: bool = False,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _run_repair_report_policy(username, wiki_id, force=force)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")

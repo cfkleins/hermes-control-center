@@ -243,6 +243,11 @@ const wikiLintRepairReportBrowseBtn = document.getElementById("wiki-lint-repair-
 const wikiLintRepairReportDeleteBtn = document.getElementById("wiki-lint-repair-report-delete");
 const wikiLintRepairReportPruneBtn = document.getElementById("wiki-lint-repair-report-prune");
 const wikiLintRepairKeepLastInput = document.getElementById("wiki-lint-repair-keep-last");
+const wikiLintPolicyEnabledInput = document.getElementById("wiki-lint-policy-enabled");
+const wikiLintPolicyCadenceSelect = document.getElementById("wiki-lint-policy-cadence");
+const wikiLintPolicySaveBtn = document.getElementById("wiki-lint-policy-save");
+const wikiLintPolicyRunBtn = document.getElementById("wiki-lint-policy-run");
+const wikiLintPolicyStatusEl = document.getElementById("wiki-lint-policy-status");
 const wikiLintStatusEl = document.getElementById("wiki-lint-status");
 const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
 const wikiLintHistoryEl = document.getElementById("wiki-lint-history");
@@ -366,11 +371,16 @@ function openLintModal(match) {
   if (wikiLintPlaybookOutputEl) wikiLintPlaybookOutputEl.textContent = "No playbook yet.";
   if (wikiLintRepairReportOutputEl) wikiLintRepairReportOutputEl.textContent = "No repair report yet.";
   if (wikiLintRepairReportArtifactsEl) wikiLintRepairReportArtifactsEl.textContent = "No repair report artifacts loaded.";
+  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Policy not loaded.";
   if (wikiLintActionsEl) wikiLintActionsEl.innerHTML = "No missing scaffold actions yet.";
   wikiLintCard.classList.remove("hidden");
   wikiLintBackdrop.classList.remove("hidden");
   document.body.classList.add("modal-open");
   if (wikiLintRunBtn) wikiLintRunBtn.focus();
+  loadRepairReportPolicy().catch((err) => {
+    console.error(err);
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Failed to load policy.";
+  });
 }
 
 function closeLintModal() {
@@ -622,6 +632,44 @@ async function pruneWikiRepairReportArtifacts() {
     console.error(err);
     if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Failed to prune repair artifacts.";
   }
+}
+
+async function loadRepairReportPolicy() {
+  if (!selectedWikiId) return;
+  const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/policy`);
+  const data = await res.json();
+  if (wikiLintPolicyEnabledInput) wikiLintPolicyEnabledInput.checked = Boolean(data.enabled);
+  if (wikiLintPolicyCadenceSelect) wikiLintPolicyCadenceSelect.value = data.cadence || "daily";
+  if (wikiLintRepairKeepLastInput) wikiLintRepairKeepLastInput.value = String(Number(data.keep_last || 10));
+  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = `Policy: ${data.enabled ? "enabled" : "disabled"} | cadence=${data.cadence} | keep_last=${data.keep_last}`;
+}
+
+async function saveRepairReportPolicy() {
+  if (!selectedWikiId) return;
+  if (activeRole !== "admin") {
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Read-only: admin role required to save policy.";
+    return;
+  }
+  const enabled = Boolean(wikiLintPolicyEnabledInput?.checked);
+  const cadence = wikiLintPolicyCadenceSelect?.value || "daily";
+  const keepLast = Number(wikiLintRepairKeepLastInput?.value || 10);
+  const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/policy?enabled=${enabled ? "true" : "false"}&cadence=${encodeURIComponent(cadence)}&keep_last=${Number.isFinite(keepLast) ? keepLast : 10}`, { method: "PUT" });
+  const data = await res.json();
+  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = `Policy saved: ${data.enabled ? "enabled" : "disabled"} | cadence=${data.cadence} | keep_last=${data.keep_last}`;
+  await loadTimeline();
+}
+
+async function runRepairReportPolicyNow() {
+  if (!selectedWikiId) return;
+  if (activeRole !== "admin") {
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Read-only: admin role required to run policy.";
+    return;
+  }
+  const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/policy/run?force=true`, { method: "POST" });
+  const data = await res.json();
+  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = data.ran ? `Policy run complete. Deleted ${(data.result?.deleted || []).length}.` : `Policy did not run (${data.reason || "unknown"}).`;
+  await browseWikiRepairReports();
+  await loadTimeline();
 }
 
 function isWizardModalOpen() {
@@ -2046,6 +2094,22 @@ if (wikiLintRepairReportPruneBtn) wikiLintRepairReportPruneBtn.addEventListener(
   } catch (err) {
     console.error(err);
     if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report prune failed.";
+  }
+});
+if (wikiLintPolicySaveBtn) wikiLintPolicySaveBtn.addEventListener("click", async () => {
+  try {
+    await saveRepairReportPolicy();
+  } catch (err) {
+    console.error(err);
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Failed to save policy.";
+  }
+});
+if (wikiLintPolicyRunBtn) wikiLintPolicyRunBtn.addEventListener("click", async () => {
+  try {
+    await runRepairReportPolicyNow();
+  } catch (err) {
+    console.error(err);
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Failed to run policy.";
   }
 });
 if (wikiLintActionsEl) wikiLintActionsEl.addEventListener("click", async (event) => {
