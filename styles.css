@@ -385,3 +385,25 @@ body.modal-open {
   z-index: 70;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
 }
+
+.ask-modal {
+  position: fixed;
+  top: 10vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(820px, 94vw);
+  max-height: 82vh;
+  overflow: auto;
+  z-index: 70;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+#wiki-ask-result {
+  white-space: pre-wrap;
+  max-height: 240px;
+  overflow: auto;
+  background: #0d1425;
+  border: 1px solid #33436a;
+  border-radius: 10px;
+  padding: 0.5rem;
+}

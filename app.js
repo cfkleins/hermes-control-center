@@ -219,6 +219,16 @@ const wikiIngestBucketSelect = document.getElementById("wiki-ingest-bucket");
 const wikiIngestNoteInput = document.getElementById("wiki-ingest-note");
 const wikiIngestSubmitBtn = document.getElementById("wiki-ingest-submit");
 const wikiIngestStatusEl = document.getElementById("wiki-ingest-status");
+const wikiAskCard = document.getElementById("wiki-ask-card");
+const wikiAskBackdrop = document.getElementById("wiki-ask-backdrop");
+const wikiAskCloseBtn = document.getElementById("wiki-ask-close");
+const wikiAskTargetEl = document.getElementById("wiki-ask-target");
+const wikiAskQuestionInput = document.getElementById("wiki-ask-question");
+const wikiAskSubmitBtn = document.getElementById("wiki-ask-submit");
+const wikiAskCopyBtn = document.getElementById("wiki-ask-copy");
+const wikiAskExportBtn = document.getElementById("wiki-ask-export");
+const wikiAskStatusEl = document.getElementById("wiki-ask-status");
+const wikiAskResultEl = document.getElementById("wiki-ask-result");
 
 let selectedWikiId = null;
 let selectedWikiSubject = "";
@@ -296,6 +306,27 @@ function closeIngestModal() {
   if (!wikiIngestCard || !wikiIngestBackdrop) return;
   wikiIngestCard.classList.add("hidden");
   wikiIngestBackdrop.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+
+function openAskModal(match) {
+  if (!wikiAskCard || !wikiAskBackdrop) return;
+  selectedWikiId = match.id;
+  selectedWikiSubject = match.subject || "";
+  if (wikiAskTargetEl) wikiAskTargetEl.textContent = `Selected wiki: #${match.id} ${match.subject}`;
+  if (wikiAskQuestionInput) wikiAskQuestionInput.value = "";
+  if (wikiAskStatusEl) wikiAskStatusEl.textContent = "Ask a question and submit.";
+  if (wikiAskResultEl) wikiAskResultEl.textContent = "No query results yet.";
+  wikiAskCard.classList.remove("hidden");
+  wikiAskBackdrop.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  if (wikiAskQuestionInput) wikiAskQuestionInput.focus();
+}
+
+function closeAskModal() {
+  if (!wikiAskCard || !wikiAskBackdrop) return;
+  wikiAskCard.classList.add("hidden");
+  wikiAskBackdrop.classList.add("hidden");
   document.body.classList.remove("modal-open");
 }
 
@@ -1185,19 +1216,71 @@ async function runWikiIngestFlow(match) {
 }
 
 async function runWikiQueryFlow(match) {
-  const question = window.prompt(`Ask ${match.subject}:`);
-  if (!question || !question.trim()) {
-    if (wikiStatusEl) wikiStatusEl.textContent = "Ask cancelled.";
+  openAskModal(match);
+}
+
+async function submitAskModal() {
+  if (!selectedWikiId) {
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = "Select a wiki tile first.";
     return;
   }
-  const res = await authFetch(`/api/llm-wikis/${match.id}/ask`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question: question.trim() })
-  });
-  const data = await res.json();
-  if (wikiStatusEl) wikiStatusEl.textContent = `Query completed for ${match.subject}.`;
-  if (wikiDocViewerEl) wikiDocViewerEl.textContent = `${data.answer}\n\nMatches:\n${JSON.stringify(data.matches || [], null, 2)}`;
+  const question = wikiAskQuestionInput?.value?.trim() || "";
+  if (!question) {
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = "Question is required.";
+    return;
+  }
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/ask`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question })
+    });
+    const data = await res.json();
+    const rendered = `${data.answer || "(no answer)"}\n\nMatches:\n${JSON.stringify(data.matches || [], null, 2)}`;
+    if (wikiAskResultEl) wikiAskResultEl.textContent = rendered;
+    if (wikiDocViewerEl) wikiDocViewerEl.textContent = rendered;
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = `Query completed for ${data.subject || selectedWikiSubject}.`;
+    if (wikiStatusEl) wikiStatusEl.textContent = `Query completed for ${data.subject || selectedWikiSubject}.`;
+    await loadTimeline();
+  } catch (err) {
+    console.error(err);
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = "Query failed.";
+  }
+}
+
+async function copyAskResult() {
+  const text = wikiAskResultEl?.textContent || "";
+  if (!text.trim()) {
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = "No query result to copy.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = "Query result copied to clipboard.";
+  } catch {
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = "Clipboard copy failed.";
+  }
+}
+
+function exportAskResult() {
+  const text = wikiAskResultEl?.textContent || "";
+  if (!text.trim()) {
+    if (wikiAskStatusEl) wikiAskStatusEl.textContent = "No query result to export.";
+    return;
+  }
+  const subjectSlug = (selectedWikiSubject || "wiki").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `${subjectSlug || "wiki"}-ask-result-${stamp}.md`;
+  const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  if (wikiAskStatusEl) wikiAskStatusEl.textContent = `Exported ${filename}.`;
 }
 
 async function runWikiLintFlow(match) {
@@ -1538,8 +1621,18 @@ if (wikiWizardBackdrop) wikiWizardBackdrop.addEventListener("click", closeWizard
 if (wikiIngestCloseBtn) wikiIngestCloseBtn.addEventListener("click", closeIngestModal);
 if (wikiIngestBackdrop) wikiIngestBackdrop.addEventListener("click", closeIngestModal);
 if (wikiIngestSubmitBtn) wikiIngestSubmitBtn.addEventListener("click", submitIngestModal);
+if (wikiAskCloseBtn) wikiAskCloseBtn.addEventListener("click", closeAskModal);
+if (wikiAskBackdrop) wikiAskBackdrop.addEventListener("click", closeAskModal);
+if (wikiAskSubmitBtn) wikiAskSubmitBtn.addEventListener("click", submitAskModal);
+if (wikiAskCopyBtn) wikiAskCopyBtn.addEventListener("click", copyAskResult);
+if (wikiAskExportBtn) wikiAskExportBtn.addEventListener("click", exportAskResult);
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    if (!wikiAskCard?.classList.contains("hidden")) {
+      event.preventDefault();
+      closeAskModal();
+      return;
+    }
     if (!wikiIngestCard?.classList.contains("hidden")) {
       event.preventDefault();
       closeIngestModal();
@@ -1564,6 +1657,7 @@ if (wizardSubjectInput && wizardSlugInput) {
 renderWizardStep();
 closeWizardModal();
 closeIngestModal();
+closeAskModal();
 if (llmWikisGrid) {
   llmWikisGrid.addEventListener("click", async (event) => {
     const target = event.target;

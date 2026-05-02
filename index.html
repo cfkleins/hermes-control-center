@@ -265,6 +265,7 @@
 
         <div id="wiki-wizard-backdrop" class="modal-backdrop hidden"></div>
         <div id="wiki-ingest-backdrop" class="modal-backdrop hidden"></div>
+        <div id="wiki-ask-backdrop" class="modal-backdrop hidden"></div>
         <section class="card wizard-modal hidden" id="wiki-wizard-card" aria-modal="true" role="dialog" aria-labelledby="wiki-wizard-title">
           <div class="row">
             <h2 id="wiki-wizard-title" style="margin:0;">New Wiki Wizard (Karpathy Method)</h2>
@@ -334,6 +335,25 @@
             <button id="wiki-ingest-submit">Ingest Now</button>
           </div>
           <p id="wiki-ingest-status" class="status">Fill fields and submit ingestion.</p>
+        </section>
+
+        <section class="card ask-modal hidden" id="wiki-ask-card" aria-modal="true" role="dialog" aria-labelledby="wiki-ask-title">
+          <div class="row">
+            <h2 id="wiki-ask-title" style="margin:0;">Ask Wiki</h2>
+            <button id="wiki-ask-close" class="ghost">Close</button>
+          </div>
+          <p id="wiki-ask-target" class="status small">No wiki selected.</p>
+          <div class="settings-grid">
+            <label for="wiki-ask-question">Question</label>
+            <textarea id="wiki-ask-question" rows="4" placeholder="What taxonomy tags are used for this wiki?"></textarea>
+          </div>
+          <div class="row">
+            <button id="wiki-ask-submit">Ask Now</button>
+            <button id="wiki-ask-copy" class="ghost">Copy Result</button>
+            <button id="wiki-ask-export" class="ghost">Export Result (.md)</button>
+          </div>
+          <p id="wiki-ask-status" class="status">Ask a question and submit.</p>
+          <pre id="wiki-ask-result" class="status small">No query results yet.</pre>
         </section>
 
         <section class="card" id="llm-wikis-tiles-card">
