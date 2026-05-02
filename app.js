@@ -238,6 +238,7 @@ const wikiLintCreateAllBtn = document.getElementById("wiki-lint-create-all");
 const wikiLintPlaybookBtn = document.getElementById("wiki-lint-playbook");
 const wikiLintRepairRunBtn = document.getElementById("wiki-lint-repair-run");
 const wikiLintRepairReportBtn = document.getElementById("wiki-lint-repair-report");
+const wikiLintRepairReportExportBtn = document.getElementById("wiki-lint-repair-report-export");
 const wikiLintStatusEl = document.getElementById("wiki-lint-status");
 const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
 const wikiLintHistoryEl = document.getElementById("wiki-lint-history");
@@ -477,6 +478,38 @@ async function loadWikiRepairReport() {
   } catch (err) {
     console.error(err);
     wikiLintRepairReportOutputEl.textContent = "Failed to load repair report.";
+  }
+}
+
+async function exportWikiRepairReport() {
+  if (!selectedWikiId) return;
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/export?persist=true`);
+    const data = await res.json();
+    const text = data.markdown || "";
+    if (!text.trim()) {
+      if (wikiLintStatusEl) wikiLintStatusEl.textContent = "No repair report markdown to export.";
+      return;
+    }
+    const filename = data.filename || `wiki-repair-report-${new Date().toISOString().replace(/[:.]/g, "-")}.md`;
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    if (wikiLintRepairReportOutputEl) wikiLintRepairReportOutputEl.textContent = text;
+    if (wikiLintStatusEl) {
+      wikiLintStatusEl.textContent = `Repair report exported: ${filename}${data.saved_path ? ` (${data.saved_path})` : ""}`;
+    }
+    await loadTimeline();
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report export failed.";
   }
 }
 
@@ -1869,6 +1902,14 @@ if (wikiLintRepairReportBtn) wikiLintRepairReportBtn.addEventListener("click", a
   } catch (err) {
     console.error(err);
     if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report generation failed.";
+  }
+});
+if (wikiLintRepairReportExportBtn) wikiLintRepairReportExportBtn.addEventListener("click", async () => {
+  try {
+    await exportWikiRepairReport();
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report export failed.";
   }
 });
 if (wikiLintActionsEl) wikiLintActionsEl.addEventListener("click", async (event) => {

@@ -1278,6 +1278,95 @@ def _build_repair_report(username: str, wiki_id: int, before: dict, after: dict,
     }
 
 
+def _render_repair_report_markdown(report: dict) -> str:
+    subject = report.get("subject") or "Unknown Wiki"
+    summary = report.get("summary") or {}
+    resolved = report.get("resolved_issues") or []
+    unresolved = report.get("unresolved_issues") or []
+    next_three = report.get("next_3_recommendations") or []
+    created = summary.get("created_scaffold") or []
+    skipped = summary.get("skipped_scaffold") or []
+
+    lines = [
+        f"# Repair Report — {subject}",
+        "",
+        f"- Generated: {datetime.now(timezone.utc).isoformat()}",
+        f"- Wiki ID: {report.get('wiki_id')}",
+        f"- Health: {summary.get('health_before')} → {summary.get('health_after')}",
+        f"- Score delta: {summary.get('score_delta')}",
+        "",
+        "## Scaffold changes",
+        f"- Created: {', '.join(created) if created else 'none'}",
+        f"- Skipped: {', '.join(skipped) if skipped else 'none'}",
+        "",
+        "## Resolved issues",
+    ]
+    if resolved:
+        lines.extend([f"- {item}" for item in resolved])
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Unresolved issues"])
+    if unresolved:
+        lines.extend([f"- {item}" for item in unresolved])
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Next 3 recommendations"])
+    if next_three:
+        lines.extend([f"1. {item}" for item in next_three])
+    else:
+        lines.append("1. none")
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def _export_repair_report(username: str, wiki_id: int, persist: bool = True) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    before = _lint_wiki(username, wiki_id)
+    scaffold = {"created": [], "skipped": []}
+    after = _lint_wiki(username, wiki_id)
+    playbook = _build_conformance_playbook(username, wiki_id)
+    report = _build_repair_report(username, wiki_id, before, after, scaffold, playbook)
+    markdown = _render_repair_report_markdown(report)
+
+    subject_slug = re.sub(r"[^a-z0-9]+", "-", str(wiki.get("subject", "wiki")).lower()).strip("-") or "wiki"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"{subject_slug}-repair-report-{stamp}.md"
+
+    saved_path = None
+    if persist:
+        wiki_path = _resolve_wiki_path(wiki)
+        reports_dir = wiki_path / "reports" / "repair-reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+        out_path = reports_dir / filename
+        out_path.write_text(markdown, encoding="utf-8")
+        saved_path = str(out_path)
+
+        log_path = wiki_path / "log.md"
+        if log_path.exists():
+            stamp_human = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+            with log_path.open("a", encoding="utf-8") as fh:
+                fh.write(f"- {stamp_human}: repair report exported ({filename})\n")
+
+        _add_timeline_event(
+            username,
+            "wiki",
+            f"Repair report exported: {wiki.get('subject', 'Unknown Wiki')}",
+            {"wiki_id": wiki_id, "filename": filename, "saved_path": saved_path},
+        )
+
+    return {
+        "wiki_id": wiki_id,
+        "subject": report.get("subject"),
+        "filename": filename,
+        "persisted": bool(persist),
+        "saved_path": saved_path,
+        "markdown": markdown,
+        "report": report,
+    }
+
+
 def _run_guided_repair(username: str, wiki_id: int, payload: WikiRepairRunPayload) -> dict:
     _require_admin(username)
     before = _lint_wiki(username, wiki_id)
@@ -1926,6 +2015,16 @@ def wiki_lint_repair_report(wiki_id: int, x_session_token: str | None = Header(d
     after = _lint_wiki(username, wiki_id)
     playbook = _build_conformance_playbook(username, wiki_id)
     return _build_repair_report(username, wiki_id, before, after, scaffold, playbook)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint/repair-report/export")
+def wiki_lint_repair_report_export(
+    wiki_id: int,
+    persist: bool = True,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _export_repair_report(username, wiki_id, persist=persist)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")
