@@ -373,3 +373,15 @@ body.modal-open {
   z-index: 70;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
 }
+
+.ingest-modal {
+  position: fixed;
+  top: 10vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(760px, 94vw);
+  max-height: 80vh;
+  overflow: auto;
+  z-index: 70;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+}

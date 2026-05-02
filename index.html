@@ -264,6 +264,7 @@
         </section>
 
         <div id="wiki-wizard-backdrop" class="modal-backdrop hidden"></div>
+        <div id="wiki-ingest-backdrop" class="modal-backdrop hidden"></div>
         <section class="card wizard-modal hidden" id="wiki-wizard-card" aria-modal="true" role="dialog" aria-labelledby="wiki-wizard-title">
           <div class="row">
             <h2 id="wiki-wizard-title" style="margin:0;">New Wiki Wizard (Karpathy Method)</h2>
@@ -308,6 +309,31 @@
           </div>
           <p id="wizard-status" class="status">Wizard idle.</p>
           <pre id="wizard-artifacts" class="status small">No artifacts yet.</pre>
+        </section>
+
+        <section class="card ingest-modal hidden" id="wiki-ingest-card" aria-modal="true" role="dialog" aria-labelledby="wiki-ingest-title">
+          <div class="row">
+            <h2 id="wiki-ingest-title" style="margin:0;">Ingest Source</h2>
+            <button id="wiki-ingest-close" class="ghost">Close</button>
+          </div>
+          <p id="wiki-ingest-target" class="status small">No wiki selected.</p>
+          <div class="settings-grid">
+            <label for="wiki-ingest-source">Source URL or file path</label>
+            <input id="wiki-ingest-source" type="text" placeholder="https://example.com/paper or /path/to/file.pdf" />
+            <label for="wiki-ingest-bucket">Raw bucket</label>
+            <select id="wiki-ingest-bucket">
+              <option value="articles">articles</option>
+              <option value="papers">papers</option>
+              <option value="transcripts">transcripts</option>
+              <option value="assets">assets</option>
+            </select>
+            <label for="wiki-ingest-note">Ingest note</label>
+            <textarea id="wiki-ingest-note" rows="3" placeholder="Optional context for this ingest"></textarea>
+          </div>
+          <div class="row">
+            <button id="wiki-ingest-submit">Ingest Now</button>
+          </div>
+          <p id="wiki-ingest-status" class="status">Fill fields and submit ingestion.</p>
         </section>
 
         <section class="card" id="llm-wikis-tiles-card">

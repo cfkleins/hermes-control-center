@@ -207,8 +207,18 @@ const wizardNextStepBtn = document.getElementById("wizard-next-step");
 const wizardStepLabelEl = document.getElementById("wizard-step-label");
 const wizardStatusEl = document.getElementById("wizard-status");
 const wizardArtifactsEl = document.getElementById("wizard-artifacts");
+const wikiWizardCard = document.getElementById("wiki-wizard-card");
 const wikiWizardCloseBtn = document.getElementById("wiki-wizard-close");
 const wikiWizardBackdrop = document.getElementById("wiki-wizard-backdrop");
+const wikiIngestCard = document.getElementById("wiki-ingest-card");
+const wikiIngestBackdrop = document.getElementById("wiki-ingest-backdrop");
+const wikiIngestCloseBtn = document.getElementById("wiki-ingest-close");
+const wikiIngestTargetEl = document.getElementById("wiki-ingest-target");
+const wikiIngestSourceInput = document.getElementById("wiki-ingest-source");
+const wikiIngestBucketSelect = document.getElementById("wiki-ingest-bucket");
+const wikiIngestNoteInput = document.getElementById("wiki-ingest-note");
+const wikiIngestSubmitBtn = document.getElementById("wiki-ingest-submit");
+const wikiIngestStatusEl = document.getElementById("wiki-ingest-status");
 
 let selectedWikiId = null;
 let selectedWikiSubject = "";
@@ -258,13 +268,35 @@ function openWizardModal() {
 }
 
 function closeWizardModal() {
-  const card = document.getElementById("wiki-wizard-card");
-  if (card) card.classList.add("hidden");
-  if (wikiWizardBackdrop) wikiWizardBackdrop.classList.add("hidden");
+  if (!wikiWizardCard || !wikiWizardBackdrop) return;
+  wikiWizardCard.classList.add("hidden");
+  wikiWizardBackdrop.classList.add("hidden");
   document.body.classList.remove("modal-open");
   if (wizardLastFocusedEl && typeof wizardLastFocusedEl.focus === "function") {
     wizardLastFocusedEl.focus();
   }
+}
+
+function openIngestModal(match) {
+  if (!wikiIngestCard || !wikiIngestBackdrop) return;
+  selectedWikiId = match.id;
+  selectedWikiSubject = match.subject || "";
+  if (wikiIngestTargetEl) wikiIngestTargetEl.textContent = `Selected wiki: #${match.id} ${match.subject}`;
+  if (wikiIngestSourceInput) wikiIngestSourceInput.value = "";
+  if (wikiIngestBucketSelect) wikiIngestBucketSelect.value = "articles";
+  if (wikiIngestNoteInput) wikiIngestNoteInput.value = "";
+  if (wikiIngestStatusEl) wikiIngestStatusEl.textContent = "Fill fields and submit ingestion.";
+  wikiIngestCard.classList.remove("hidden");
+  wikiIngestBackdrop.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  if (wikiIngestSourceInput) wikiIngestSourceInput.focus();
+}
+
+function closeIngestModal() {
+  if (!wikiIngestCard || !wikiIngestBackdrop) return;
+  wikiIngestCard.classList.add("hidden");
+  wikiIngestBackdrop.classList.add("hidden");
+  document.body.classList.remove("modal-open");
 }
 
 function isWizardModalOpen() {
@@ -1117,24 +1149,39 @@ async function showWikiDoc(kind) {
   }
 }
 
-async function runWikiIngestFlow(match) {
-  const source = window.prompt(`Source URL/path to ingest for ${match.subject}:`);
-  if (!source || !source.trim()) {
-    if (wikiStatusEl) wikiStatusEl.textContent = "Ingest cancelled.";
+async function submitIngestModal() {
+  if (!selectedWikiId) {
+    if (wikiIngestStatusEl) wikiIngestStatusEl.textContent = "Select a wiki tile first.";
     return;
   }
-  const bucketInput = window.prompt("Bucket (articles|papers|transcripts|assets)", "articles") || "articles";
-  const bucket = ["articles", "papers", "transcripts", "assets"].includes(bucketInput) ? bucketInput : "articles";
-  const note = window.prompt("Optional ingest note", "") || "";
+  const source = wikiIngestSourceInput?.value?.trim() || "";
+  const bucket = wikiIngestBucketSelect?.value || "articles";
+  const note = wikiIngestNoteInput?.value || "";
+  if (!source) {
+    if (wikiIngestStatusEl) wikiIngestStatusEl.textContent = "Source is required.";
+    return;
+  }
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, bucket, note })
+    });
+    const data = await res.json();
+    if (wikiStatusEl) wikiStatusEl.textContent = `Ingested source into ${data.ingest_path}`;
+    if (wikiIngestStatusEl) wikiIngestStatusEl.textContent = `Ingest complete: ${data.ingest_path}`;
+    if (wikiDocViewerEl) wikiDocViewerEl.textContent = JSON.stringify(data, null, 2);
+    closeIngestModal();
+    await loadWikis();
+    await loadTimeline();
+  } catch (err) {
+    console.error(err);
+    if (wikiIngestStatusEl) wikiIngestStatusEl.textContent = "Ingest failed.";
+  }
+}
 
-  const res = await authFetch(`/api/llm-wikis/${match.id}/ingest`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ source: source.trim(), bucket, note })
-  });
-  const data = await res.json();
-  if (wikiStatusEl) wikiStatusEl.textContent = `Ingested source into ${data.ingest_path}`;
-  if (wikiDocViewerEl) wikiDocViewerEl.textContent = JSON.stringify(data, null, 2);
+async function runWikiIngestFlow(match) {
+  openIngestModal(match);
 }
 
 async function runWikiQueryFlow(match) {
@@ -1488,7 +1535,17 @@ if (wizardPrevStepBtn) wizardPrevStepBtn.addEventListener("click", () => moveWiz
 if (wizardNextStepBtn) wizardNextStepBtn.addEventListener("click", () => moveWizardStep(1));
 if (wikiWizardCloseBtn) wikiWizardCloseBtn.addEventListener("click", closeWizardModal);
 if (wikiWizardBackdrop) wikiWizardBackdrop.addEventListener("click", closeWizardModal);
+if (wikiIngestCloseBtn) wikiIngestCloseBtn.addEventListener("click", closeIngestModal);
+if (wikiIngestBackdrop) wikiIngestBackdrop.addEventListener("click", closeIngestModal);
+if (wikiIngestSubmitBtn) wikiIngestSubmitBtn.addEventListener("click", submitIngestModal);
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (!wikiIngestCard?.classList.contains("hidden")) {
+      event.preventDefault();
+      closeIngestModal();
+      return;
+    }
+  }
   if (!isWizardModalOpen()) return;
   if (event.key === "Escape") {
     event.preventDefault();
@@ -1506,6 +1563,7 @@ if (wizardSubjectInput && wizardSlugInput) {
 }
 renderWizardStep();
 closeWizardModal();
+closeIngestModal();
 if (llmWikisGrid) {
   llmWikisGrid.addEventListener("click", async (event) => {
     const target = event.target;
