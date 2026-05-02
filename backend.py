@@ -137,6 +137,16 @@ class WikiBlueprintPayload(BaseModel):
     taxonomy_tags: list[str] = Field(default_factory=list)
 
 
+class WikiIngestPayload(BaseModel):
+    source: str = Field(min_length=1, max_length=2000)
+    bucket: str = Field(pattern="^(articles|papers|transcripts|assets)$", default="articles")
+    note: str = Field(min_length=0, max_length=2000, default="")
+
+
+class WikiAskPayload(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -842,6 +852,184 @@ def _resolve_interview_path(wiki: dict) -> Path:
     return path
 
 
+def _resolve_wiki_path(wiki: dict) -> Path:
+    raw = str(wiki.get("wiki_path", "")).strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Wiki has no path")
+    wiki_path = Path(raw)
+    if not str(wiki_path.resolve()).startswith(str(WIKI_ROOT_PATH.resolve())):
+        raise HTTPException(status_code=400, detail="Wiki path outside allowed wiki root")
+    return wiki_path
+
+
+def _append_wiki_log(wiki_path: Path, line: str) -> None:
+    log_path = wiki_path / "log.md"
+    if not log_path.exists():
+        log_path.write_text("# Log\n\n", encoding="utf-8")
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(f"- {line}\n")
+
+
+def _ingest_wiki_source(username: str, wiki_id: int, payload: WikiIngestPayload) -> dict:
+    _require_admin(username)
+    wiki = _find_wiki(username, wiki_id)
+    wiki_path = _resolve_wiki_path(wiki)
+    source = payload.source.strip()
+    bucket = payload.bucket
+    now = datetime.now(timezone.utc)
+
+    bucket_dir = wiki_path / "raw" / bucket
+    bucket_dir.mkdir(parents=True, exist_ok=True)
+    stem = re.sub(r"[^a-z0-9]+", "-", source.lower()).strip("-")[:48] or "source"
+    ingest_filename = f"ingest-{now.strftime('%Y%m%dT%H%M%SZ')}-{stem}.md"
+    ingest_path = bucket_dir / ingest_filename
+    ingest_md = (
+        f"# Ingest Source\n\n"
+        f"- Source: {source}\n"
+        f"- Bucket: {bucket}\n"
+        f"- Ingested at: {now.isoformat()}\n"
+        f"- Ingested by: {username}\n"
+        f"- Note: {payload.note.strip() or '(none)'}\n"
+    )
+    ingest_path.write_text(ingest_md, encoding="utf-8")
+
+    _append_wiki_log(
+        wiki_path,
+        f"[{now.isoformat()}] source ingested into raw/{bucket}: {source} ({ingest_filename})",
+    )
+    wiki["last_indexed_at"] = now.isoformat()
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Source ingested for {wiki.get('subject', 'Unknown Wiki')}",
+        {"wiki_id": wiki_id, "bucket": bucket, "source": source, "path": str(ingest_path)},
+    )
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject", ""),
+        "bucket": bucket,
+        "source": source,
+        "ingest_path": str(ingest_path),
+        "updated_last_indexed_at": wiki["last_indexed_at"],
+    }
+
+
+def _ask_wiki(username: str, wiki_id: int, payload: WikiAskPayload) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    wiki_path = _resolve_wiki_path(wiki)
+    question = payload.question.strip()
+    q_terms = [t.lower() for t in re.findall(r"[a-zA-Z0-9_\-]{3,}", question)][:8]
+
+    candidate_files = [
+        wiki_path / "SCHEMA.md",
+        wiki_path / "index.md",
+        wiki_path / "setup-interview.md",
+        wiki_path / "log.md",
+    ]
+    snippets: list[dict] = []
+    for file_path in candidate_files:
+        if not file_path.exists():
+            continue
+        lines = file_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        for idx, line in enumerate(lines, start=1):
+            lowered = line.lower()
+            if q_terms and any(term in lowered for term in q_terms):
+                snippets.append({"path": str(file_path), "line": idx, "text": line.strip()[:240]})
+                if len(snippets) >= 12:
+                    break
+        if len(snippets) >= 12:
+            break
+
+    if snippets:
+        preview = "\n".join([f"- {s['path']}:{s['line']} → {s['text']}" for s in snippets[:6]])
+        answer = (
+            "Phase-1 wiki query result (keyword match):\n"
+            f"Question: {question}\n"
+            "Top matching lines:\n"
+            f"{preview}"
+        )
+    else:
+        answer = (
+            "Phase-1 wiki query could not find direct keyword matches in SCHEMA.md/index.md/"
+            "setup-interview.md/log.md."
+        )
+
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Wiki queried: {wiki.get('subject', 'Unknown Wiki')}",
+        {"wiki_id": wiki_id, "question": question[:180], "matches": len(snippets)},
+    )
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject", ""),
+        "question": question,
+        "answer": answer,
+        "matches": snippets[:12],
+    }
+
+
+def _lint_wiki(username: str, wiki_id: int) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    wiki_path = _resolve_wiki_path(wiki)
+    required_files = ["SCHEMA.md", "index.md", "log.md", "setup-interview.md"]
+    required_dirs = ["raw/articles", "raw/papers", "raw/transcripts", "raw/assets"]
+
+    file_checks = [{"path": name, "exists": (wiki_path / name).exists()} for name in required_files]
+    dir_checks = [{"path": name, "exists": (wiki_path / name).exists()} for name in required_dirs]
+    missing_files = [c["path"] for c in file_checks if not c["exists"]]
+    missing_dirs = [c["path"] for c in dir_checks if not c["exists"]]
+
+    schema_text = ""
+    schema_path = wiki_path / "SCHEMA.md"
+    if schema_path.exists():
+        schema_text = schema_path.read_text(encoding="utf-8", errors="ignore")
+    taxonomy_ok = "taxonomy" in schema_text.lower() or "tag" in schema_text.lower()
+    crosslink_ok = "[[" in schema_text
+
+    score = 100 - (len(missing_files) * 15) - (len(missing_dirs) * 10)
+    score -= 10 if not taxonomy_ok else 0
+    score -= 10 if not crosslink_ok else 0
+    score = max(0, score)
+    health = "green" if score >= 85 else "yellow" if score >= 60 else "red"
+
+    wiki["health"] = health
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Wiki linted: {wiki.get('subject', 'Unknown Wiki')} ({health}, {score})",
+        {"wiki_id": wiki_id, "missing_files": missing_files, "missing_dirs": missing_dirs},
+    )
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject", ""),
+        "wiki_path": str(wiki_path),
+        "score": score,
+        "health": health,
+        "checks": {
+            "required_files": file_checks,
+            "required_dirs": dir_checks,
+            "taxonomy_markers_present": taxonomy_ok,
+            "crosslink_marker_present": crosslink_ok,
+        },
+        "missing": {"files": missing_files, "dirs": missing_dirs},
+    }
+
+
+def _load_wiki_doc(doc_kind: str) -> dict:
+    normalized = doc_kind.strip().lower()
+    mapping = {
+        "help": Path("docs/LLM_WIKI_TAB_HELP.md"),
+        "summary": Path("docs/LLM_WIKI_TAB_ONE_PAGE_SUMMARY.md"),
+    }
+    path = mapping.get(normalized)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Unknown doc kind")
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Doc not found: {path}")
+    return {"kind": normalized, "path": str(path.resolve()), "content": path.read_text(encoding="utf-8")}
+
+
 def _get_wiki_interview(username: str, wiki_id: int) -> dict:
     wiki = _find_wiki(username, wiki_id)
     path = _resolve_interview_path(wiki)
@@ -1239,6 +1427,38 @@ def put_wiki_interview(
 ):
     username = _require_operator(x_session_token)
     return _update_wiki_interview(username, wiki_id, payload)
+
+
+@app.post("/api/llm-wikis/{wiki_id}/ingest")
+def ingest_wiki_source(
+    wiki_id: int,
+    payload: WikiIngestPayload,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _ingest_wiki_source(username, wiki_id, payload)
+
+
+@app.post("/api/llm-wikis/{wiki_id}/ask")
+def ask_wiki(
+    wiki_id: int,
+    payload: WikiAskPayload,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _ask_wiki(username, wiki_id, payload)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint")
+def lint_wiki(wiki_id: int, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return _lint_wiki(username, wiki_id)
+
+
+@app.get("/api/llm-wikis/docs/{doc_kind}")
+def get_wiki_doc(doc_kind: str, x_session_token: str | None = Header(default=None)):
+    _require_operator(x_session_token)
+    return _load_wiki_doc(doc_kind)
 
 
 app.mount("/", StaticFiles(directory=".", html=True), name="static")

@@ -173,8 +173,11 @@ const wikiSaveBtn = document.getElementById("wiki-save-btn");
 const wikiOpenWizardBtn = document.getElementById("wiki-open-wizard");
 const wikiClearBtn = document.getElementById("wiki-clear-btn");
 const wikiRefreshBtn = document.getElementById("wiki-refresh-btn");
+const wikiShowHelpBtn = document.getElementById("wiki-show-help");
+const wikiShowSummaryBtn = document.getElementById("wiki-show-summary");
 const wikiEditingEl = document.getElementById("wiki-editing");
 const wikiStatusEl = document.getElementById("wiki-status");
+const wikiDocViewerEl = document.getElementById("wiki-doc-viewer");
 const llmWikisGrid = document.getElementById("llm-wikis-grid");
 const wikiFilterSelect = document.getElementById("wiki-filter-select");
 const wikiInterviewTargetEl = document.getElementById("wiki-interview-target");
@@ -1098,6 +1101,63 @@ function renderWikis(items) {
     : '<p class="status small">No wikis loaded for this filter.</p>';
 }
 
+async function showWikiDoc(kind) {
+  if (!wikiDocViewerEl) return;
+  try {
+    const res = await authFetch(`/api/llm-wikis/docs/${kind}`);
+    const data = await res.json();
+    wikiDocViewerEl.textContent = `# ${data.kind.toUpperCase()}\nPath: ${data.path}\n\n${data.content || ""}`;
+    if (wikiStatusEl) wikiStatusEl.textContent = `Loaded ${data.kind} doc.`;
+  } catch (err) {
+    console.error(err);
+    wikiDocViewerEl.textContent = `Failed to load ${kind} doc.`;
+    if (wikiStatusEl) wikiStatusEl.textContent = `Failed to load ${kind} doc.`;
+  }
+}
+
+async function runWikiIngestFlow(match) {
+  const source = window.prompt(`Source URL/path to ingest for ${match.subject}:`);
+  if (!source || !source.trim()) {
+    if (wikiStatusEl) wikiStatusEl.textContent = "Ingest cancelled.";
+    return;
+  }
+  const bucketInput = window.prompt("Bucket (articles|papers|transcripts|assets)", "articles") || "articles";
+  const bucket = ["articles", "papers", "transcripts", "assets"].includes(bucketInput) ? bucketInput : "articles";
+  const note = window.prompt("Optional ingest note", "") || "";
+
+  const res = await authFetch(`/api/llm-wikis/${match.id}/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source: source.trim(), bucket, note })
+  });
+  const data = await res.json();
+  if (wikiStatusEl) wikiStatusEl.textContent = `Ingested source into ${data.ingest_path}`;
+  if (wikiDocViewerEl) wikiDocViewerEl.textContent = JSON.stringify(data, null, 2);
+}
+
+async function runWikiQueryFlow(match) {
+  const question = window.prompt(`Ask ${match.subject}:`);
+  if (!question || !question.trim()) {
+    if (wikiStatusEl) wikiStatusEl.textContent = "Ask cancelled.";
+    return;
+  }
+  const res = await authFetch(`/api/llm-wikis/${match.id}/ask`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question: question.trim() })
+  });
+  const data = await res.json();
+  if (wikiStatusEl) wikiStatusEl.textContent = `Query completed for ${match.subject}.`;
+  if (wikiDocViewerEl) wikiDocViewerEl.textContent = `${data.answer}\n\nMatches:\n${JSON.stringify(data.matches || [], null, 2)}`;
+}
+
+async function runWikiLintFlow(match) {
+  const res = await authFetch(`/api/llm-wikis/${match.id}/lint`);
+  const data = await res.json();
+  if (wikiStatusEl) wikiStatusEl.textContent = `Lint complete for ${match.subject}: ${data.health} (${data.score})`;
+  if (wikiDocViewerEl) wikiDocViewerEl.textContent = JSON.stringify(data, null, 2);
+}
+
 function resetWikiEditor() {
   selectedWikiId = null;
   selectedWikiSubject = "";
@@ -1359,6 +1419,8 @@ if (wikiClearBtn) wikiClearBtn.addEventListener("click", () => {
   if (wikiStatusEl) wikiStatusEl.textContent = "Editor reset.";
 });
 if (wikiRefreshBtn) wikiRefreshBtn.addEventListener("click", loadWikis);
+if (wikiShowHelpBtn) wikiShowHelpBtn.addEventListener("click", () => showWikiDoc("help"));
+if (wikiShowSummaryBtn) wikiShowSummaryBtn.addEventListener("click", () => showWikiDoc("summary"));
 if (wikiOpenWizardBtn) wikiOpenWizardBtn.addEventListener("click", openWizardModal);
 if (wikiFilterSelect) wikiFilterSelect.addEventListener("change", loadWikis);
 if (wikiInterviewLoadBtn) wikiInterviewLoadBtn.addEventListener("click", loadInterviewForSelectedWiki);
@@ -1455,14 +1517,19 @@ if (llmWikisGrid) {
         if (wikiStatusEl) wikiStatusEl.textContent = `Opened charter notes for ${match.subject}.`;
       }
 
-      if (ingestId && wikiStatusEl) {
-        wikiStatusEl.textContent = `Ingest flow queued for ${match.subject}. (Next: source picker modal)`;
+      if (ingestId) {
+        await runWikiIngestFlow(match);
+        await loadWikis();
+        await loadTimeline();
       }
-      if (queryId && wikiStatusEl) {
-        wikiStatusEl.textContent = `Query flow queued for ${match.subject}. (Next: ask-wiki panel)`;
+      if (queryId) {
+        await runWikiQueryFlow(match);
+        await loadTimeline();
       }
-      if (lintId && wikiStatusEl) {
-        wikiStatusEl.textContent = `Lint flow queued for ${match.subject}. (Next: health audit report)`;
+      if (lintId) {
+        await runWikiLintFlow(match);
+        await loadWikis();
+        await loadTimeline();
       }
     } catch (err) {
       console.error(err);
