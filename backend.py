@@ -1321,6 +1321,11 @@ def _render_repair_report_markdown(report: dict) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _repair_reports_dir_for_wiki(wiki: dict) -> Path:
+    wiki_path = _resolve_wiki_path(wiki)
+    return wiki_path / "reports" / "repair-reports"
+
+
 def _export_repair_report(username: str, wiki_id: int, persist: bool = True) -> dict:
     wiki = _find_wiki(username, wiki_id)
     before = _lint_wiki(username, wiki_id)
@@ -1336,14 +1341,13 @@ def _export_repair_report(username: str, wiki_id: int, persist: bool = True) -> 
 
     saved_path = None
     if persist:
-        wiki_path = _resolve_wiki_path(wiki)
-        reports_dir = wiki_path / "reports" / "repair-reports"
+        reports_dir = _repair_reports_dir_for_wiki(wiki)
         reports_dir.mkdir(parents=True, exist_ok=True)
         out_path = reports_dir / filename
         out_path.write_text(markdown, encoding="utf-8")
         saved_path = str(out_path)
 
-        log_path = wiki_path / "log.md"
+        log_path = _resolve_wiki_path(wiki) / "log.md"
         if log_path.exists():
             stamp_human = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
             with log_path.open("a", encoding="utf-8") as fh:
@@ -1364,6 +1368,48 @@ def _export_repair_report(username: str, wiki_id: int, persist: bool = True) -> 
         "saved_path": saved_path,
         "markdown": markdown,
         "report": report,
+    }
+
+
+def _list_repair_report_artifacts(username: str, wiki_id: int, limit: int = 30) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    reports_dir = _repair_reports_dir_for_wiki(wiki)
+    if not reports_dir.exists():
+        return {"wiki_id": wiki_id, "subject": wiki.get("subject"), "items": []}
+
+    items: list[dict] = []
+    for p in reports_dir.glob("*.md"):
+        stat = p.stat()
+        items.append({
+            "filename": p.name,
+            "path": str(p),
+            "size_bytes": stat.st_size,
+            "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        })
+
+    items.sort(key=lambda i: i.get("modified_at", ""), reverse=True)
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject"),
+        "items": items[: max(1, min(int(limit), 100))],
+    }
+
+
+def _read_repair_report_artifact(username: str, wiki_id: int, filename: str) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    safe = Path(filename).name
+    if not safe.endswith(".md"):
+        raise HTTPException(status_code=400, detail="Only markdown artifacts are supported")
+    path = _repair_reports_dir_for_wiki(wiki) / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    text = path.read_text(encoding="utf-8")
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject"),
+        "filename": safe,
+        "path": str(path),
+        "markdown": text,
     }
 
 
@@ -2025,6 +2071,26 @@ def wiki_lint_repair_report_export(
 ):
     username = _require_operator(x_session_token)
     return _export_repair_report(username, wiki_id, persist=persist)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint/repair-report/artifacts")
+def wiki_lint_repair_report_artifacts(
+    wiki_id: int,
+    limit: int = 30,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _list_repair_report_artifacts(username, wiki_id, limit=limit)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint/repair-report/artifacts/{filename}")
+def wiki_lint_repair_report_artifact_read(
+    wiki_id: int,
+    filename: str,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _read_repair_report_artifact(username, wiki_id, filename)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")

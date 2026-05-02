@@ -239,11 +239,13 @@ const wikiLintPlaybookBtn = document.getElementById("wiki-lint-playbook");
 const wikiLintRepairRunBtn = document.getElementById("wiki-lint-repair-run");
 const wikiLintRepairReportBtn = document.getElementById("wiki-lint-repair-report");
 const wikiLintRepairReportExportBtn = document.getElementById("wiki-lint-repair-report-export");
+const wikiLintRepairReportBrowseBtn = document.getElementById("wiki-lint-repair-report-browse");
 const wikiLintStatusEl = document.getElementById("wiki-lint-status");
 const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
 const wikiLintHistoryEl = document.getElementById("wiki-lint-history");
 const wikiLintPlaybookOutputEl = document.getElementById("wiki-lint-playbook-output");
 const wikiLintRepairReportOutputEl = document.getElementById("wiki-lint-repair-report-output");
+const wikiLintRepairReportArtifactsEl = document.getElementById("wiki-lint-repair-report-artifacts");
 const wikiLintActionsEl = document.getElementById("wiki-lint-actions");
 
 let selectedWikiId = null;
@@ -358,6 +360,7 @@ function openLintModal(match) {
   if (wikiLintHistoryEl) wikiLintHistoryEl.textContent = "No lint history yet.";
   if (wikiLintPlaybookOutputEl) wikiLintPlaybookOutputEl.textContent = "No playbook yet.";
   if (wikiLintRepairReportOutputEl) wikiLintRepairReportOutputEl.textContent = "No repair report yet.";
+  if (wikiLintRepairReportArtifactsEl) wikiLintRepairReportArtifactsEl.textContent = "No repair report artifacts loaded.";
   if (wikiLintActionsEl) wikiLintActionsEl.innerHTML = "No missing scaffold actions yet.";
   wikiLintCard.classList.remove("hidden");
   wikiLintBackdrop.classList.remove("hidden");
@@ -510,6 +513,58 @@ async function exportWikiRepairReport() {
   } catch (err) {
     console.error(err);
     if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report export failed.";
+  }
+}
+
+async function browseWikiRepairReports() {
+  if (!selectedWikiId || !wikiLintRepairReportArtifactsEl) return;
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/artifacts?limit=20`);
+    const data = await res.json();
+    const items = data.items || [];
+    if (!items.length) {
+      wikiLintRepairReportArtifactsEl.textContent = "No persisted repair reports yet.";
+      return;
+    }
+    const lines = items.map((it, i) => `${i + 1}. ${it.filename} | ${(it.size_bytes || 0)} bytes | ${String(it.modified_at || "").replace("T", " ").slice(0, 19)}`);
+    wikiLintRepairReportArtifactsEl.textContent = [
+      "Repair Report Artifacts",
+      ...lines,
+      "",
+      "Tip: click a line number button below to open + download."
+    ].join("\n");
+
+    const btns = items.map((it, i) => `<button class="ghost" data-repair-artifact-open="${encodeURIComponent(it.filename)}">Open #${i + 1}</button>`).join(" ");
+    wikiLintActionsEl.innerHTML = `${wikiLintActionsEl.innerHTML}<div style="margin-top:8px">${btns}</div>`;
+  } catch (err) {
+    console.error(err);
+    wikiLintRepairReportArtifactsEl.textContent = "Failed to load repair report artifacts.";
+  }
+}
+
+async function openWikiRepairReportArtifact(filenameEncoded) {
+  if (!selectedWikiId || !filenameEncoded) return;
+  const filename = decodeURIComponent(filenameEncoded);
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/artifacts/${encodeURIComponent(filename)}`);
+    const data = await res.json();
+    const text = data.markdown || "";
+    if (wikiLintRepairReportOutputEl) wikiLintRepairReportOutputEl.textContent = text || "(empty artifact)";
+
+    const blob = new Blob([text], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = data.filename || filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = `Opened repair artifact: ${data.filename || filename}`;
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Failed to open repair artifact.";
   }
 }
 
@@ -1912,9 +1967,28 @@ if (wikiLintRepairReportExportBtn) wikiLintRepairReportExportBtn.addEventListene
     if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report export failed.";
   }
 });
+if (wikiLintRepairReportBrowseBtn) wikiLintRepairReportBrowseBtn.addEventListener("click", async () => {
+  try {
+    await browseWikiRepairReports();
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report artifacts loaded.";
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Repair report artifact browse failed.";
+  }
+});
 if (wikiLintActionsEl) wikiLintActionsEl.addEventListener("click", async (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
+  const artifact = target.getAttribute("data-repair-artifact-open");
+  if (artifact) {
+    try {
+      await openWikiRepairReportArtifact(artifact);
+    } catch (err) {
+      console.error(err);
+      if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Failed to open selected repair artifact.";
+    }
+    return;
+  }
   const item = target.getAttribute("data-lint-create-target");
   if (!item) return;
   try {
