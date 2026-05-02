@@ -235,9 +235,12 @@ const wikiLintCloseBtn = document.getElementById("wiki-lint-close");
 const wikiLintTargetEl = document.getElementById("wiki-lint-target");
 const wikiLintRunBtn = document.getElementById("wiki-lint-run");
 const wikiLintCreateAllBtn = document.getElementById("wiki-lint-create-all");
+const wikiLintPlaybookBtn = document.getElementById("wiki-lint-playbook");
+const wikiLintRepairRunBtn = document.getElementById("wiki-lint-repair-run");
 const wikiLintStatusEl = document.getElementById("wiki-lint-status");
 const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
 const wikiLintHistoryEl = document.getElementById("wiki-lint-history");
+const wikiLintPlaybookOutputEl = document.getElementById("wiki-lint-playbook-output");
 const wikiLintActionsEl = document.getElementById("wiki-lint-actions");
 
 let selectedWikiId = null;
@@ -350,6 +353,7 @@ function openLintModal(match) {
   if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Run lint to inspect wiki health.";
   if (wikiLintSummaryEl) wikiLintSummaryEl.textContent = "No lint results yet.";
   if (wikiLintHistoryEl) wikiLintHistoryEl.textContent = "No lint history yet.";
+  if (wikiLintPlaybookOutputEl) wikiLintPlaybookOutputEl.textContent = "No playbook yet.";
   if (wikiLintActionsEl) wikiLintActionsEl.innerHTML = "No missing scaffold actions yet.";
   wikiLintCard.classList.remove("hidden");
   wikiLintBackdrop.classList.remove("hidden");
@@ -395,6 +399,51 @@ async function loadWikiLintHistory() {
     console.error(err);
     wikiLintHistoryEl.textContent = "Failed to load lint history.";
   }
+}
+
+async function loadWikiLintPlaybook() {
+  if (!selectedWikiId || !wikiLintPlaybookOutputEl) return;
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/playbook`);
+    const data = await res.json();
+    const steps = data.playbook || [];
+    if (!steps.length) {
+      wikiLintPlaybookOutputEl.textContent = `Score ${data.score} (${data.health})\nNo repair playbook steps needed.`;
+      return;
+    }
+    const rendered = steps.map((s, i) => {
+      const actions = (s.actions || []).map((a) => `  - ${a}`).join("\n");
+      const orphanPreview = s.orphan_preview?.length ? `\n  orphan preview: ${s.orphan_preview.join(", ")}` : "";
+      return `${i + 1}. ${s.title}\nreason: ${s.reason}\nactions:\n${actions}${orphanPreview}`;
+    }).join("\n\n");
+    wikiLintPlaybookOutputEl.textContent = `Score ${data.score} (${data.health})\n\n${rendered}`;
+  } catch (err) {
+    console.error(err);
+    wikiLintPlaybookOutputEl.textContent = "Failed to load playbook.";
+  }
+}
+
+async function runGuidedRepairRun() {
+  if (!selectedWikiId) return;
+  if (activeRole !== "admin") {
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Read-only: admin role required for guided repair run.";
+    return;
+  }
+  const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ include_orphan_fix_guidance: true })
+  });
+  const data = await res.json();
+  if (wikiLintStatusEl) wikiLintStatusEl.textContent = `Guided repair run complete. Score ${data.before?.score} → ${data.after?.score}.`;
+  if (wikiLintSummaryEl) {
+    wikiLintSummaryEl.textContent = `Health: ${data.after?.health} (${data.after?.score})\nMissing files: ${(data.after?.missing?.files || []).join(", ") || "none"}\nMissing dirs: ${(data.after?.missing?.dirs || []).join(", ") || "none"}`;
+  }
+  renderLintActions(data.after || {});
+  await loadWikiLintHistory();
+  await loadWikiLintPlaybook();
+  await loadWikis();
+  await loadTimeline();
 }
 
 function isWizardModalOpen() {
@@ -1373,6 +1422,7 @@ async function runWikiLintFlow(match) {
   if (wikiLintStatusEl) wikiLintStatusEl.textContent = `Lint complete: ${data.health} (${data.score}).`;
   renderLintActions(data);
   await loadWikiLintHistory();
+  await loadWikiLintPlaybook();
 }
 
 async function createWikiScaffold(targets = []) {
@@ -1396,6 +1446,7 @@ async function createWikiScaffold(targets = []) {
     }
     renderLintActions(data.lint);
     await loadWikiLintHistory();
+    await loadWikiLintPlaybook();
   }
   await loadWikis();
   await loadTimeline();
@@ -1758,6 +1809,23 @@ if (wikiLintCreateAllBtn) wikiLintCreateAllBtn.addEventListener("click", async (
   } catch (err) {
     console.error(err);
     if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Scaffold creation failed.";
+  }
+});
+if (wikiLintPlaybookBtn) wikiLintPlaybookBtn.addEventListener("click", async () => {
+  try {
+    await loadWikiLintPlaybook();
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Playbook generated.";
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Playbook generation failed.";
+  }
+});
+if (wikiLintRepairRunBtn) wikiLintRepairRunBtn.addEventListener("click", async () => {
+  try {
+    await runGuidedRepairRun();
+  } catch (err) {
+    console.error(err);
+    if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Guided repair run failed.";
   }
 });
 if (wikiLintActionsEl) wikiLintActionsEl.addEventListener("click", async (event) => {

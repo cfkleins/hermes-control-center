@@ -155,6 +155,10 @@ class WikiScaffoldPayload(BaseModel):
     targets: list[str] = Field(default_factory=list)
 
 
+class WikiRepairRunPayload(BaseModel):
+    include_orphan_fix_guidance: bool = True
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -1122,6 +1126,132 @@ def _get_wiki_lint_history(username: str, wiki_id: int, limit: int = 20) -> dict
     }
 
 
+def _build_conformance_playbook(username: str, wiki_id: int) -> dict:
+    lint = _lint_wiki(username, wiki_id)
+    checks = lint.get("checks", {})
+    missing = lint.get("missing", {})
+    steps: list[dict] = []
+
+    if missing.get("files") or missing.get("dirs"):
+        steps.append(
+            {
+                "id": "repair-scaffold",
+                "title": "Create missing scaffold",
+                "reason": "Required wiki files or directories are missing.",
+                "actions": [
+                    "Use Create Missing Scaffold (bulk) in Lint modal.",
+                    "Re-run lint and confirm missing files/dirs are zero.",
+                ],
+            }
+        )
+
+    if not checks.get("taxonomy_markers_present") or not checks.get("schema_entity_markers_present"):
+        steps.append(
+            {
+                "id": "repair-schema-taxonomy",
+                "title": "Strengthen SCHEMA taxonomy/entities",
+                "reason": "Schema taxonomy or entity markers are weak/missing.",
+                "actions": [
+                    "Open SCHEMA.md and define taxonomy tags explicitly.",
+                    "Add/confirm entity classes (Person, Organization, Model, etc.).",
+                ],
+            }
+        )
+
+    if not checks.get("crosslink_marker_present") or not checks.get("schema_crosslink_section_present"):
+        steps.append(
+            {
+                "id": "repair-crosslinks",
+                "title": "Add crosslink conventions",
+                "reason": "Crosslink markers/section absent in schema or pages.",
+                "actions": [
+                    "Add a Crosslinking section to SCHEMA.md.",
+                    "Add wikilinks ([[Entity Name]]) between index and key pages.",
+                ],
+            }
+        )
+
+    orphan_pages = checks.get("orphan_pages", []) or []
+    if orphan_pages:
+        preview = orphan_pages[:12]
+        steps.append(
+            {
+                "id": "repair-orphans",
+                "title": "Resolve orphan pages",
+                "reason": f"Detected {len(orphan_pages)} pages with zero inbound links.",
+                "actions": [
+                    "Link each orphan from index.md or a topic hub page.",
+                    "Ensure each orphan has at least one inbound [[wikilink]].",
+                ],
+                "orphan_preview": preview,
+            }
+        )
+
+    frontmatter_ratio = float(checks.get("frontmatter_ratio") or 0)
+    if frontmatter_ratio < 0.5:
+        steps.append(
+            {
+                "id": "repair-frontmatter",
+                "title": "Increase frontmatter coverage",
+                "reason": f"Frontmatter ratio is {frontmatter_ratio:.2f} (< 0.50).",
+                "actions": [
+                    "Add YAML frontmatter blocks to high-value markdown pages.",
+                    "Include at minimum: title, tags, updated_at.",
+                ],
+            }
+        )
+
+    if checks.get("graph_drift_detected"):
+        steps.append(
+            {
+                "id": "repair-graph-drift",
+                "title": "Reduce graph drift",
+                "reason": "Link density/orphan ratio indicates a fragmented knowledge graph.",
+                "actions": [
+                    "Create or update hub pages by topic.",
+                    "Add reciprocal links between related entities/concepts.",
+                ],
+            }
+        )
+
+    return {
+        "wiki_id": lint.get("wiki_id"),
+        "subject": lint.get("subject"),
+        "health": lint.get("health"),
+        "score": lint.get("score"),
+        "playbook": steps,
+        "lint": lint,
+    }
+
+
+def _run_guided_repair(username: str, wiki_id: int, payload: WikiRepairRunPayload) -> dict:
+    _require_admin(username)
+    before = _lint_wiki(username, wiki_id)
+    scaffold = _create_missing_scaffold(username, wiki_id, WikiScaffoldPayload(targets=[]))
+    after = scaffold.get("lint") or _lint_wiki(username, wiki_id)
+    playbook = _build_conformance_playbook(username, wiki_id)
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Guided repair run: {playbook.get('subject', 'Unknown Wiki')}",
+        {
+            "wiki_id": wiki_id,
+            "before_score": before.get("score"),
+            "after_score": after.get("score"),
+            "created": scaffold.get("created", []),
+        },
+    )
+    return {
+        "wiki_id": wiki_id,
+        "subject": playbook.get("subject"),
+        "before": before,
+        "after": after,
+        "scaffold": {"created": scaffold.get("created", []), "skipped": scaffold.get("skipped", [])},
+        "playbook": playbook.get("playbook", []),
+        "include_orphan_fix_guidance": bool(payload.include_orphan_fix_guidance),
+    }
+
+
 def _create_missing_scaffold(username: str, wiki_id: int, payload: WikiScaffoldPayload) -> dict:
     _require_admin(username)
     wiki = _find_wiki(username, wiki_id)
@@ -1714,6 +1844,22 @@ def wiki_lint_history(
 ):
     username = _require_operator(x_session_token)
     return _get_wiki_lint_history(username, wiki_id, limit)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint/playbook")
+def wiki_lint_playbook(wiki_id: int, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return _build_conformance_playbook(username, wiki_id)
+
+
+@app.post("/api/llm-wikis/{wiki_id}/lint/repair-run")
+def wiki_lint_repair_run(
+    wiki_id: int,
+    payload: WikiRepairRunPayload,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _run_guided_repair(username, wiki_id, payload)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")
