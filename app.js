@@ -237,6 +237,7 @@ const wikiLintRunBtn = document.getElementById("wiki-lint-run");
 const wikiLintCreateAllBtn = document.getElementById("wiki-lint-create-all");
 const wikiLintStatusEl = document.getElementById("wiki-lint-status");
 const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
+const wikiLintHistoryEl = document.getElementById("wiki-lint-history");
 const wikiLintActionsEl = document.getElementById("wiki-lint-actions");
 
 let selectedWikiId = null;
@@ -348,6 +349,7 @@ function openLintModal(match) {
   if (wikiLintTargetEl) wikiLintTargetEl.textContent = `Selected wiki: #${match.id} ${match.subject}`;
   if (wikiLintStatusEl) wikiLintStatusEl.textContent = "Run lint to inspect wiki health.";
   if (wikiLintSummaryEl) wikiLintSummaryEl.textContent = "No lint results yet.";
+  if (wikiLintHistoryEl) wikiLintHistoryEl.textContent = "No lint history yet.";
   if (wikiLintActionsEl) wikiLintActionsEl.innerHTML = "No missing scaffold actions yet.";
   wikiLintCard.classList.remove("hidden");
   wikiLintBackdrop.classList.remove("hidden");
@@ -375,6 +377,24 @@ function renderLintActions(data) {
     .map((item) => `<button class="ghost" data-lint-create-target="${item}">Create ${item}</button>`)
     .join(" ");
   wikiLintActionsEl.innerHTML = `Missing scaffold (${missing.length}): ${missing.join(", ")}\n\n${buttons}`;
+}
+
+async function loadWikiLintHistory() {
+  if (!selectedWikiId || !wikiLintHistoryEl) return;
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/history?limit=12`);
+    const data = await res.json();
+    const rows = data.items || [];
+    if (!rows.length) {
+      wikiLintHistoryEl.textContent = "No lint history yet.";
+      return;
+    }
+    const lines = rows.map((r) => `${(r.created_at || "").replace("T", " ").slice(0, 19)} | score ${r.score} | ${r.health} | orphans ${r.orphan_count} | fm ${(Number(r.frontmatter_ratio || 0) * 100).toFixed(0)}% | links ${Number(r.link_density || 0).toFixed(2)}`);
+    wikiLintHistoryEl.textContent = `Trend: ${data.trend}\n` + lines.join("\n");
+  } catch (err) {
+    console.error(err);
+    wikiLintHistoryEl.textContent = "Failed to load lint history.";
+  }
 }
 
 function isWizardModalOpen() {
@@ -1352,6 +1372,7 @@ async function runWikiLintFlow(match) {
   }
   if (wikiLintStatusEl) wikiLintStatusEl.textContent = `Lint complete: ${data.health} (${data.score}).`;
   renderLintActions(data);
+  await loadWikiLintHistory();
 }
 
 async function createWikiScaffold(targets = []) {
@@ -1374,6 +1395,7 @@ async function createWikiScaffold(targets = []) {
       wikiLintSummaryEl.textContent = `Health: ${data.lint.health} (${data.lint.score})\nMissing files: ${(data.lint.missing?.files || []).join(", ") || "none"}\nMissing dirs: ${(data.lint.missing?.dirs || []).join(", ") || "none"}`;
     }
     renderLintActions(data.lint);
+    await loadWikiLintHistory();
   }
   await loadWikis();
   await loadTimeline();

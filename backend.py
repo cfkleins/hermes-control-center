@@ -992,12 +992,53 @@ def _lint_wiki(username: str, wiki_id: int) -> dict:
     schema_path = wiki_path / "SCHEMA.md"
     if schema_path.exists():
         schema_text = schema_path.read_text(encoding="utf-8", errors="ignore")
-    taxonomy_ok = "taxonomy" in schema_text.lower() or "tag" in schema_text.lower()
+    schema_lower = schema_text.lower()
+    taxonomy_ok = "taxonomy" in schema_lower or "tag" in schema_lower
     crosslink_ok = "[[" in schema_text
+    schema_entity_ok = "entity" in schema_lower
+    schema_crosslink_section_ok = "crosslink" in schema_lower
+
+    md_files = [p for p in wiki_path.rglob("*.md") if "raw" not in p.relative_to(wiki_path).parts]
+    inbound_counts: dict[str, int] = {}
+    outbound_counts: dict[str, int] = {}
+    page_names: dict[str, str] = {}
+    frontmatter_files = 0
+    wikilink_re = re.compile(r"\[\[([^\]|#]+)")
+
+    for p in md_files:
+        rel = str(p.relative_to(wiki_path))
+        name = p.stem.strip().lower()
+        page_names[name] = rel
+        inbound_counts.setdefault(name, 0)
+        outbound_counts.setdefault(name, 0)
+
+    for p in md_files:
+        name = p.stem.strip().lower()
+        text = p.read_text(encoding="utf-8", errors="ignore")
+        if text.lstrip().startswith("---\n"):
+            frontmatter_files += 1
+        refs = [m.group(1).strip().lower() for m in wikilink_re.finditer(text)]
+        outbound_counts[name] = len(refs)
+        for ref in refs:
+            inbound_counts[ref] = inbound_counts.get(ref, 0) + 1
+
+    exempt = {"index", "log", "schema", "setup-interview"}
+    orphan_pages = [page_names[n] for n in page_names if n not in exempt and inbound_counts.get(n, 0) == 0]
+    total_pages = len(page_names)
+    total_outbound = sum(outbound_counts.values())
+    frontmatter_ratio = (frontmatter_files / total_pages) if total_pages else 0.0
+    orphan_ratio = (len(orphan_pages) / total_pages) if total_pages else 0.0
+    link_density = (total_outbound / total_pages) if total_pages else 0.0
+    graph_drift = orphan_ratio > 0.4 or link_density < 0.3
 
     score = 100 - (len(missing_files) * 15) - (len(missing_dirs) * 10)
-    score -= 10 if not taxonomy_ok else 0
-    score -= 10 if not crosslink_ok else 0
+    score -= 8 if not taxonomy_ok else 0
+    score -= 8 if not crosslink_ok else 0
+    score -= 8 if not schema_entity_ok else 0
+    score -= 8 if not schema_crosslink_section_ok else 0
+    score -= min(20, len(orphan_pages) * 2)
+    score -= 10 if graph_drift else 0
+    score -= 8 if frontmatter_ratio < 0.5 else 0
     score = max(0, score)
     health = "green" if score >= 85 else "yellow" if score >= 60 else "red"
 
@@ -1006,7 +1047,16 @@ def _lint_wiki(username: str, wiki_id: int) -> dict:
         username,
         "wiki",
         f"Wiki linted: {wiki.get('subject', 'Unknown Wiki')} ({health}, {score})",
-        {"wiki_id": wiki_id, "missing_files": missing_files, "missing_dirs": missing_dirs},
+        {
+            "wiki_id": wiki_id,
+            "score": score,
+            "health": health,
+            "missing_files": missing_files,
+            "missing_dirs": missing_dirs,
+            "orphan_count": len(orphan_pages),
+            "frontmatter_ratio": round(frontmatter_ratio, 3),
+            "link_density": round(link_density, 3),
+        },
     )
     return {
         "wiki_id": wiki_id,
@@ -1019,8 +1069,56 @@ def _lint_wiki(username: str, wiki_id: int) -> dict:
             "required_dirs": dir_checks,
             "taxonomy_markers_present": taxonomy_ok,
             "crosslink_marker_present": crosslink_ok,
+            "schema_entity_markers_present": schema_entity_ok,
+            "schema_crosslink_section_present": schema_crosslink_section_ok,
+            "frontmatter_ratio": round(frontmatter_ratio, 3),
+            "link_density": round(link_density, 3),
+            "graph_drift_detected": graph_drift,
+            "orphan_pages": orphan_pages[:100],
         },
         "missing": {"files": missing_files, "dirs": missing_dirs},
+    }
+
+
+def _get_wiki_lint_history(username: str, wiki_id: int, limit: int = 20) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    state = _ensure_operator_state(username)
+    safe_limit = max(1, min(limit, 100))
+    rows: list[dict] = []
+    for item in state.get("timeline", []):
+        if item.get("kind") != "wiki":
+            continue
+        details = item.get("details") or {}
+        if int(details.get("wiki_id", -1)) != int(wiki_id):
+            continue
+        if "score" not in details or "health" not in details:
+            continue
+        rows.append(
+            {
+                "created_at": item.get("created_at"),
+                "score": details.get("score"),
+                "health": details.get("health"),
+                "orphan_count": details.get("orphan_count", 0),
+                "frontmatter_ratio": details.get("frontmatter_ratio", 0),
+                "link_density": details.get("link_density", 0),
+            }
+        )
+        if len(rows) >= safe_limit:
+            break
+    trend = "stable"
+    if len(rows) >= 2:
+        newest = int(rows[0].get("score") or 0)
+        oldest = int(rows[-1].get("score") or 0)
+        delta = newest - oldest
+        if delta >= 5:
+            trend = "improving"
+        elif delta <= -5:
+            trend = "degrading"
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject", ""),
+        "trend": trend,
+        "items": rows,
     }
 
 
@@ -1606,6 +1704,16 @@ def scaffold_wiki(
 ):
     username = _require_operator(x_session_token)
     return _create_missing_scaffold(username, wiki_id, payload)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/lint/history")
+def wiki_lint_history(
+    wiki_id: int,
+    limit: int = 20,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _get_wiki_lint_history(username, wiki_id, limit)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")

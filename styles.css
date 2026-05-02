@@ -412,6 +412,7 @@ body.modal-open {
 
 #wiki-ask-result,
 #wiki-lint-summary,
+#wiki-lint-history,
 #wiki-lint-actions {
   white-space: pre-wrap;
   max-height: 240px;
