@@ -371,6 +371,10 @@
             <button id="wiki-lint-repair-report" class="ghost">Generate Repair Report</button>
             <button id="wiki-lint-repair-report-export" class="ghost">Export Repair Report (.md)</button>
             <button id="wiki-lint-repair-report-browse" class="ghost">Browse Repair Reports</button>
+            <button id="wiki-lint-repair-report-delete" class="ghost">Delete Selected Report</button>
+            <label for="wiki-lint-repair-keep-last" class="small">Keep last</label>
+            <input id="wiki-lint-repair-keep-last" type="number" min="0" max="500" value="10" style="max-width:90px;" />
+            <button id="wiki-lint-repair-report-prune" class="ghost">Prune Old Reports</button>
           </div>
           <p id="wiki-lint-status" class="status">Run lint to inspect wiki health.</p>
           <pre id="wiki-lint-summary" class="status small">No lint results yet.</pre>

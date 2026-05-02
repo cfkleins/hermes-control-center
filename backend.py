@@ -1413,6 +1413,53 @@ def _read_repair_report_artifact(username: str, wiki_id: int, filename: str) -> 
     }
 
 
+def _delete_repair_report_artifact(username: str, wiki_id: int, filename: str) -> dict:
+    _require_admin(username)
+    wiki = _find_wiki(username, wiki_id)
+    safe = Path(filename).name
+    if not safe.endswith(".md"):
+        raise HTTPException(status_code=400, detail="Only markdown artifacts are supported")
+    path = _repair_reports_dir_for_wiki(wiki) / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    path.unlink()
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Repair report deleted: {wiki.get('subject', 'Unknown Wiki')}",
+        {"wiki_id": wiki_id, "filename": safe},
+    )
+    return {"wiki_id": wiki_id, "subject": wiki.get("subject"), "deleted": [safe]}
+
+
+def _prune_repair_report_artifacts(username: str, wiki_id: int, keep_last: int = 10) -> dict:
+    _require_admin(username)
+    wiki = _find_wiki(username, wiki_id)
+    keep = max(0, min(int(keep_last), 500))
+    listing = _list_repair_report_artifacts(username, wiki_id, limit=1000)
+    items = listing.get("items", [])
+    to_delete = items[keep:]
+    deleted: list[str] = []
+    for it in to_delete:
+        p = _repair_reports_dir_for_wiki(wiki) / Path(str(it.get("filename", ""))).name
+        if p.exists() and p.is_file():
+            p.unlink()
+            deleted.append(p.name)
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Repair reports pruned: {wiki.get('subject', 'Unknown Wiki')}",
+        {"wiki_id": wiki_id, "keep_last": keep, "deleted_count": len(deleted)},
+    )
+    return {
+        "wiki_id": wiki_id,
+        "subject": wiki.get("subject"),
+        "keep_last": keep,
+        "deleted": deleted,
+        "remaining": max(0, len(items) - len(deleted)),
+    }
+
+
 def _run_guided_repair(username: str, wiki_id: int, payload: WikiRepairRunPayload) -> dict:
     _require_admin(username)
     before = _lint_wiki(username, wiki_id)
@@ -2091,6 +2138,26 @@ def wiki_lint_repair_report_artifact_read(
 ):
     username = _require_operator(x_session_token)
     return _read_repair_report_artifact(username, wiki_id, filename)
+
+
+@app.delete("/api/llm-wikis/{wiki_id}/lint/repair-report/artifacts/{filename}")
+def wiki_lint_repair_report_artifact_delete(
+    wiki_id: int,
+    filename: str,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _delete_repair_report_artifact(username, wiki_id, filename)
+
+
+@app.post("/api/llm-wikis/{wiki_id}/lint/repair-report/artifacts/prune")
+def wiki_lint_repair_report_artifacts_prune(
+    wiki_id: int,
+    keep_last: int = 10,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _prune_repair_report_artifacts(username, wiki_id, keep_last=keep_last)
 
 
 @app.get("/api/llm-wikis/docs/{doc_kind}")
