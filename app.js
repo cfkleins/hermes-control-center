@@ -247,6 +247,7 @@ const wikiLintPolicyEnabledInput = document.getElementById("wiki-lint-policy-ena
 const wikiLintPolicyCadenceSelect = document.getElementById("wiki-lint-policy-cadence");
 const wikiLintPolicySaveBtn = document.getElementById("wiki-lint-policy-save");
 const wikiLintPolicyRunBtn = document.getElementById("wiki-lint-policy-run");
+const wikiLintPolicyTickBtn = document.getElementById("wiki-lint-policy-tick");
 const wikiLintPolicyStatusEl = document.getElementById("wiki-lint-policy-status");
 const wikiLintStatusEl = document.getElementById("wiki-lint-status");
 const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
@@ -668,6 +669,18 @@ async function runRepairReportPolicyNow() {
   const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/policy/run?force=true`, { method: "POST" });
   const data = await res.json();
   if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = data.ran ? `Policy run complete. Deleted ${(data.result?.deleted || []).length}.` : `Policy did not run (${data.reason || "unknown"}).`;
+  await browseWikiRepairReports();
+  await loadTimeline();
+}
+
+async function runRepairReportPolicyTickNow() {
+  if (activeRole !== "admin") {
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Read-only: admin role required to run scheduler tick.";
+    return;
+  }
+  const res = await authFetch(`/api/llm-wikis/lint/repair-report/policy/tick?force=false`, { method: "POST" });
+  const data = await res.json();
+  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = `Scheduler tick complete. Ran ${data.run_count || 0} wiki policies.`;
   await browseWikiRepairReports();
   await loadTimeline();
 }
@@ -2110,6 +2123,14 @@ if (wikiLintPolicyRunBtn) wikiLintPolicyRunBtn.addEventListener("click", async (
   } catch (err) {
     console.error(err);
     if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Failed to run policy.";
+  }
+});
+if (wikiLintPolicyTickBtn) wikiLintPolicyTickBtn.addEventListener("click", async () => {
+  try {
+    await runRepairReportPolicyTickNow();
+  } catch (err) {
+    console.error(err);
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Failed to run scheduler tick.";
   }
 });
 if (wikiLintActionsEl) wikiLintActionsEl.addEventListener("click", async (event) => {
