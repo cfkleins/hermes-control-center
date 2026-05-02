@@ -3,6 +3,7 @@ from itertools import count
 from pathlib import Path
 from random import randint, uniform
 import json
+import re
 import secrets
 
 from fastapi import FastAPI, Header, HTTPException
@@ -29,6 +30,7 @@ DEFAULT_OPERATORS = {
 
 SESSION_IDLE_TIMEOUT_SECONDS = 15 * 60
 SESSION_ABSOLUTE_TIMEOUT_SECONDS = 8 * 60 * 60
+WIKI_ROOT_PATH = Path("/mnt/c/Users/cfkle/My Drive/cfk master/01-wikis")
 sessions: dict[str, dict] = {}
 prompt_id_counter = count(1)
 voice_id_counter = count(1)
@@ -49,6 +51,9 @@ def _default_llm_wikis() -> list[dict]:
             "health": "green",
             "last_indexed_at": now_iso,
             "notes": "Core architecture and prompting patterns.",
+            "wiki_slug": "llm-systems",
+            "wiki_path": str(WIKI_ROOT_PATH / "llm-systems"),
+            "interview_status": "pending",
         },
         {
             "id": 2,
@@ -57,6 +62,9 @@ def _default_llm_wikis() -> list[dict]:
             "health": "yellow",
             "last_indexed_at": now_iso,
             "notes": "Need refresh on deployment runbooks.",
+            "wiki_slug": "mlops",
+            "wiki_path": str(WIKI_ROOT_PATH / "mlops"),
+            "interview_status": "pending",
         },
         {
             "id": 3,
@@ -65,6 +73,9 @@ def _default_llm_wikis() -> list[dict]:
             "health": "yellow",
             "last_indexed_at": now_iso,
             "notes": "Session and RBAC hardening updates in progress.",
+            "wiki_slug": "security",
+            "wiki_path": str(WIKI_ROOT_PATH / "security"),
+            "interview_status": "pending",
         },
     ]
 
@@ -404,6 +415,49 @@ def _delete_prompt_template(username: str, template_id: int) -> None:
     _add_timeline_event(username, "prompt", f"Template deleted: #{template_id}", {"template_id": template_id})
 
 
+def _slugify(value: str) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return base or "wiki"
+
+
+def _init_karpathy_wiki_structure(subject: str) -> dict:
+    slug = _slugify(subject)
+    wiki_dir = WIKI_ROOT_PATH / slug
+    created_at = datetime.now(timezone.utc)
+    created_iso = created_at.isoformat()
+    created_day = created_at.date().isoformat()
+
+    (wiki_dir / "raw" / "articles").mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "raw" / "papers").mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "raw" / "transcripts").mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "raw" / "assets").mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "entities").mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "concepts").mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "comparisons").mkdir(parents=True, exist_ok=True)
+    (wiki_dir / "queries").mkdir(parents=True, exist_ok=True)
+
+    schema = f"""# Wiki Schema\n\n## Domain\n{subject}\n\n## Conventions\n- File names: lowercase-kebab-case\n- Every page uses YAML frontmatter\n- Use [[wikilinks]] for cross-references\n- Log all changes in log.md\n\n## Frontmatter\n```yaml\n---\ntitle: Page Title\ncreated: YYYY-MM-DD\nupdated: YYYY-MM-DD\ntype: entity | concept | comparison | query | summary\ntags: []\nsources: []\n---\n```\n\n## Tag Taxonomy\n- model\n- architecture\n- dataset\n- benchmark\n- company\n- person\n- technique\n- comparison\n- timeline\n- open-question\n"""
+
+    index_md = f"""# Wiki Index\n\n> Last updated: {created_day} | Total pages: 0\n\n## Entities\n\n## Concepts\n\n## Comparisons\n\n## Queries\n"""
+
+    log_md = f"""# Wiki Log\n\n## [{created_day}] create | Wiki initialized\n- Subject: {subject}\n- Process: karpathy-llm-wiki bootstrap\n- Root: {wiki_dir}\n"""
+
+    interview_md = f"""# Setup Interview — {subject}\n\n_Status: pending_\n\nPlease answer these before first ingestion:\n\n1. What is the exact domain scope for this wiki?\n2. What are the top 5 entities that must exist first?\n3. What sources should be ingested first (URLs/files)?\n4. What tag taxonomy additions do you want beyond defaults?\n5. What quality bar should trigger "complete" status for this wiki?\n\nCreated at: {created_iso}\n"""
+
+    (wiki_dir / "SCHEMA.md").write_text(schema, encoding="utf-8")
+    (wiki_dir / "index.md").write_text(index_md, encoding="utf-8")
+    (wiki_dir / "log.md").write_text(log_md, encoding="utf-8")
+    interview_path = wiki_dir / "setup-interview.md"
+    interview_path.write_text(interview_md, encoding="utf-8")
+
+    return {
+        "wiki_slug": slug,
+        "wiki_path": str(wiki_dir),
+        "interview_path": str(interview_path),
+        "interview_status": "pending",
+    }
+
+
 def _list_llm_wikis(username: str, limit: int) -> list[dict]:
     state = _ensure_operator_state(username)
     safe_limit = max(1, min(limit, 50))
@@ -414,6 +468,7 @@ def _create_llm_wiki(username: str, payload: LlmWikiPayload) -> dict:
     _require_admin(username)
     state = _ensure_operator_state(username)
     next_id = max((int(item.get("id", 0)) for item in state["llm_wikis"]), default=0) + 1
+    bootstrap = _init_karpathy_wiki_structure(payload.subject)
     item = {
         "id": next_id,
         "subject": payload.subject.strip(),
@@ -421,10 +476,16 @@ def _create_llm_wiki(username: str, payload: LlmWikiPayload) -> dict:
         "health": payload.health,
         "last_indexed_at": payload.last_indexed_at,
         "notes": payload.notes.strip(),
+        **bootstrap,
     }
     state["llm_wikis"].insert(0, item)
     del state["llm_wikis"][50:]
-    _add_timeline_event(username, "wiki", f"Wiki created: {item['subject']}", {"wiki_id": item["id"]})
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Wiki created: {item['subject']} (Karpathy gist init + setup interview)",
+        {"wiki_id": item["id"], "wiki_path": item["wiki_path"]},
+    )
     return item
 
 

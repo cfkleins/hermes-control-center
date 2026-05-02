@@ -848,6 +848,8 @@ function renderWikis(items) {
             </div>
             <p class="small status">Last indexed: ${item.last_indexed_at}</p>
             <p class="small">${item.notes || "--"}</p>
+            <p class="small status">Path: ${item.wiki_path || "--"}</p>
+            <p class="small status">Interview: ${item.interview_status || "--"}</p>
             <div class="row alert-actions">
               <button class="ghost" data-wiki-edit="${item.id}" ${isAdmin ? "" : "disabled"}>Load to Editor</button>
               <button class="ghost" data-wiki-touch="${item.id}" ${isAdmin ? "" : "disabled"}>Mark Indexed Now</button>
@@ -909,12 +911,13 @@ async function createWiki() {
       });
       wikiStatusEl.textContent = `Wiki tile #${selectedWikiId} updated.`;
     } else {
-      await authFetch("/api/llm-wikis", {
+      const res = await authFetch("/api/llm-wikis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      wikiStatusEl.textContent = "Wiki tile created.";
+      const created = await res.json();
+      wikiStatusEl.textContent = `Wiki tile created. Karpathy gist process initialized at ${created.wiki_path}; setup interview: ${created.interview_path}`;
     }
     resetWikiEditor();
     await loadWikis();
