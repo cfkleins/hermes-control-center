@@ -122,6 +122,10 @@ class WikiInterviewPayload(BaseModel):
     status: str = Field(pattern="^(pending|in_progress|completed)$")
 
 
+class WikiSchemaPayload(BaseModel):
+    content: str = Field(min_length=1, max_length=300000)
+
+
 class WikiBlueprintPayload(BaseModel):
     subject: str = Field(min_length=1, max_length=120)
     scope: str = Field(min_length=1, max_length=2000)
@@ -1030,6 +1034,57 @@ def _load_wiki_doc(doc_kind: str) -> dict:
     return {"kind": normalized, "path": str(path.resolve()), "content": path.read_text(encoding="utf-8")}
 
 
+def _resolve_schema_path(wiki: dict) -> Path:
+    wiki_path = _resolve_wiki_path(wiki)
+    return wiki_path / "SCHEMA.md"
+
+
+def _get_wiki_schema(username: str, wiki_id: int) -> dict:
+    wiki = _find_wiki(username, wiki_id)
+    path = _resolve_schema_path(wiki)
+    if not path.exists():
+        subject = str(wiki.get("subject", "Unknown Wiki"))
+        seed = (
+            f"# SCHEMA — {subject}\n\n"
+            "## Taxonomy\n"
+            "- tag:\n\n"
+            "## Entity types\n"
+            "- Person\n"
+            "- Organization\n"
+            "- Model\n\n"
+            "## Crosslinking\n"
+            "- Use wikilinks like [[Entity Name]].\n"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(seed, encoding="utf-8")
+    return {
+        "wiki_id": int(wiki.get("id", wiki_id)),
+        "subject": str(wiki.get("subject", "")),
+        "schema_path": str(path),
+        "content": path.read_text(encoding="utf-8"),
+    }
+
+
+def _put_wiki_schema(username: str, wiki_id: int, payload: WikiSchemaPayload) -> dict:
+    _require_admin(username)
+    wiki = _find_wiki(username, wiki_id)
+    path = _resolve_schema_path(wiki)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(payload.content, encoding="utf-8")
+    _add_timeline_event(
+        username,
+        "wiki",
+        f"Schema updated: {wiki.get('subject', 'Unknown Wiki')}",
+        {"wiki_id": wiki_id, "schema_path": str(path)},
+    )
+    return {
+        "wiki_id": int(wiki.get("id", wiki_id)),
+        "subject": str(wiki.get("subject", "")),
+        "schema_path": str(path),
+        "updated": True,
+    }
+
+
 def _get_wiki_interview(username: str, wiki_id: int) -> dict:
     wiki = _find_wiki(username, wiki_id)
     path = _resolve_interview_path(wiki)
@@ -1417,6 +1472,22 @@ def update_llm_wiki(wiki_id: int, payload: LlmWikiPayload, x_session_token: str 
 def get_wiki_interview(wiki_id: int, x_session_token: str | None = Header(default=None)):
     username = _require_operator(x_session_token)
     return _get_wiki_interview(username, wiki_id)
+
+
+@app.get("/api/llm-wikis/{wiki_id}/schema")
+def get_wiki_schema(wiki_id: int, x_session_token: str | None = Header(default=None)):
+    username = _require_operator(x_session_token)
+    return _get_wiki_schema(username, wiki_id)
+
+
+@app.put("/api/llm-wikis/{wiki_id}/schema")
+def put_wiki_schema(
+    wiki_id: int,
+    payload: WikiSchemaPayload,
+    x_session_token: str | None = Header(default=None),
+):
+    username = _require_operator(x_session_token)
+    return _put_wiki_schema(username, wiki_id, payload)
 
 
 @app.put("/api/llm-wikis/{wiki_id}/interview")

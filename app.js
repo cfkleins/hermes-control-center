@@ -186,6 +186,8 @@ const wikiInterviewContentInput = document.getElementById("wiki-interview-conten
 const wikiInterviewLoadBtn = document.getElementById("wiki-interview-load");
 const wikiInterviewSaveBtn = document.getElementById("wiki-interview-save");
 const wikiInterviewCompleteBtn = document.getElementById("wiki-interview-complete");
+const wikiSchemaLoadBtn = document.getElementById("wiki-schema-load");
+const wikiSchemaSaveBtn = document.getElementById("wiki-schema-save");
 const wikiInterviewStatusMsgEl = document.getElementById("wiki-interview-status-msg");
 
 const wizardSubjectInput = document.getElementById("wizard-subject-input");
@@ -1231,6 +1233,53 @@ async function saveInterviewForSelectedWiki(forceComplete = false) {
   }
 }
 
+async function loadSchemaForSelectedWiki() {
+  if (!selectedWikiId) {
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Select a wiki tile first.";
+    return;
+  }
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/schema`);
+    const data = await res.json();
+    if (wikiDocViewerEl) wikiDocViewerEl.textContent = `# SCHEMA.md\nPath: ${data.schema_path}\n\n${data.content || ""}`;
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Schema loaded from ${data.schema_path}.`;
+  } catch (err) {
+    console.error(err);
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to load schema.";
+  }
+}
+
+async function saveSchemaForSelectedWiki() {
+  if (!selectedWikiId) {
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Select a wiki tile first.";
+    return;
+  }
+  if (activeRole !== "admin") {
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Read-only: admin role required to save schema.";
+    return;
+  }
+  if (!wikiDocViewerEl) return;
+  const raw = wikiDocViewerEl.textContent || "";
+  const content = raw.replace(/^# SCHEMA\.md\nPath: .*\n\n/, "");
+  if (!content.trim()) {
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Schema viewer is empty.";
+    return;
+  }
+  try {
+    const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/schema`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content })
+    });
+    const data = await res.json();
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = `Schema saved to ${data.schema_path}.`;
+    await loadTimeline();
+  } catch (err) {
+    console.error(err);
+    if (wikiInterviewStatusMsgEl) wikiInterviewStatusMsgEl.textContent = "Failed to save schema.";
+  }
+}
+
 async function loadWikis() {
   if (!wikiStatusEl) return;
   try {
@@ -1430,6 +1479,8 @@ if (wikiInterviewSaveBtn) wikiInterviewSaveBtn.addEventListener("click", async (
 if (wikiInterviewCompleteBtn) wikiInterviewCompleteBtn.addEventListener("click", async () => {
   await saveInterviewForSelectedWiki(true);
 });
+if (wikiSchemaLoadBtn) wikiSchemaLoadBtn.addEventListener("click", loadSchemaForSelectedWiki);
+if (wikiSchemaSaveBtn) wikiSchemaSaveBtn.addEventListener("click", saveSchemaForSelectedWiki);
 if (wizardValidateBtn) wizardValidateBtn.addEventListener("click", validateWizardBlueprint);
 if (wizardInitBtn) wizardInitBtn.addEventListener("click", initializeWikiFromWizard);
 if (wizardResetBtn) wizardResetBtn.addEventListener("click", resetWizard);
