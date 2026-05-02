@@ -481,30 +481,46 @@ def _ensure_existing_wiki_tiles(state: dict) -> None:
         },
     ]
 
-    by_slug = {str(item.get("wiki_slug", "")): item for item in state["llm_wikis"]}
-    next_id = max((int(item.get("id", 0)) for item in state["llm_wikis"]), default=0) + 1
+    current = list(state.get("llm_wikis", []))
+    by_slug = {str(item.get("wiki_slug", "")): item for item in current}
+    next_id = max((int(item.get("id", 0)) for item in current), default=0) + 1
 
-    inserted: list[dict] = []
+    normalized_front: list[dict] = []
     for item in expected:
-        if item["wiki_slug"] in by_slug:
+        existing = by_slug.get(item["wiki_slug"])
+        if existing:
+            existing.update(
+                {
+                    "subject": item["subject"],
+                    "wiki_slug": item["wiki_slug"],
+                    "wiki_path": item["wiki_path"],
+                    "status": item["status"],
+                    "health": item["health"],
+                    "interview_status": item["interview_status"],
+                    "notes": item["notes"],
+                    "last_indexed_at": existing.get("last_indexed_at") or now_iso,
+                }
+            )
+            normalized_front.append(existing)
             continue
-        inserted.append(
-            {
-                "id": next_id,
-                "subject": item["subject"],
-                "status": item["status"],
-                "health": item["health"],
-                "last_indexed_at": now_iso,
-                "notes": item["notes"],
-                "wiki_slug": item["wiki_slug"],
-                "wiki_path": item["wiki_path"],
-                "interview_status": item["interview_status"],
-            }
-        )
-        next_id += 1
 
-    if inserted:
-        state["llm_wikis"] = inserted + state["llm_wikis"]
+        created = {
+            "id": next_id,
+            "subject": item["subject"],
+            "status": item["status"],
+            "health": item["health"],
+            "last_indexed_at": now_iso,
+            "notes": item["notes"],
+            "wiki_slug": item["wiki_slug"],
+            "wiki_path": item["wiki_path"],
+            "interview_status": item["interview_status"],
+        }
+        next_id += 1
+        normalized_front.append(created)
+
+    expected_slugs = {item["wiki_slug"] for item in expected}
+    rest = [item for item in current if str(item.get("wiki_slug", "")) not in expected_slugs]
+    state["llm_wikis"] = normalized_front + rest
 
 
 def _list_llm_wikis(username: str, limit: int) -> list[dict]:
