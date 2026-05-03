@@ -249,6 +249,8 @@ const wikiLintPolicySaveBtn = document.getElementById("wiki-lint-policy-save");
 const wikiLintPolicyRunBtn = document.getElementById("wiki-lint-policy-run");
 const wikiLintPolicyTickBtn = document.getElementById("wiki-lint-policy-tick");
 const wikiLintPolicyStatusEl = document.getElementById("wiki-lint-policy-status");
+const wikiLintPolicyHistoryFilterEl = document.getElementById("wiki-lint-policy-history-filter");
+const wikiLintPolicyHistoryEl = document.getElementById("wiki-lint-policy-history");
 const wikiLintStatusEl = document.getElementById("wiki-lint-status");
 const wikiLintSummaryEl = document.getElementById("wiki-lint-summary");
 const wikiLintHistoryEl = document.getElementById("wiki-lint-history");
@@ -635,6 +637,26 @@ async function pruneWikiRepairReportArtifacts() {
   }
 }
 
+function renderRepairPolicyHistory(data) {
+  if (!wikiLintPolicyHistoryEl) return;
+  const history = Array.isArray(data?.history) ? data.history : [];
+  const filter = wikiLintPolicyHistoryFilterEl?.value || "all";
+  const filtered = filter === "all" ? history : history.filter((h) => String(h?.source || "") === filter);
+  if (!filtered.length) {
+    wikiLintPolicyHistoryEl.textContent = "No policy history yet.";
+    return;
+  }
+  const rows = filtered.slice(0, 20).map((h, idx) => {
+    const at = h?.at || "unknown";
+    const source = h?.source || "unknown";
+    const status = h?.status || "unknown";
+    const deleted = Number.isFinite(Number(h?.deleted_count)) ? Number(h.deleted_count) : 0;
+    const remaining = h?.remaining ?? "?";
+    return `${idx + 1}. at=${at} | source=${source} | status=${status} | deleted=${deleted} | remaining=${remaining}`;
+  });
+  wikiLintPolicyHistoryEl.textContent = rows.join("\n");
+}
+
 function renderRepairPolicyStatus(data, prefix = "Policy") {
   if (!wikiLintPolicyStatusEl) return;
   const policyLine = `${prefix}: ${data.enabled ? "enabled" : "disabled"} | cadence=${data.cadence} | keep_last=${data.keep_last}`;
@@ -644,6 +666,7 @@ function renderRepairPolicyStatus(data, prefix = "Policy") {
     ? `last_result=${JSON.stringify(data.last_result)}`
     : "last_result=n/a";
   wikiLintPolicyStatusEl.textContent = [policyLine, lastRunLine, nextDueLine, lastResult].join("\n");
+  renderRepairPolicyHistory(data);
 }
 
 async function loadRepairReportPolicy() {
@@ -2156,6 +2179,14 @@ if (wikiLintPolicyTickBtn) wikiLintPolicyTickBtn.addEventListener("click", async
   } catch (err) {
     console.error(err);
     if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Failed to run scheduler tick.";
+  }
+});
+if (wikiLintPolicyHistoryFilterEl) wikiLintPolicyHistoryFilterEl.addEventListener("change", async () => {
+  try {
+    await loadRepairReportPolicy();
+  } catch (err) {
+    console.error(err);
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = "Failed to refresh policy history.";
   }
 });
 if (wikiLintActionsEl) wikiLintActionsEl.addEventListener("click", async (event) => {
