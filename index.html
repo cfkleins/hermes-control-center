@@ -3,25 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Custom Ops UI</title>
-    <link rel="stylesheet" href="styles.css" />
+    <title>Hermes Control Center</title>
+    <link rel="stylesheet" href="styles.css?v=20260503a" />
   </head>
   <body>
     <header class="topbar">
       <div>
-        <h1>Custom Web UI</h1>
-        <p class="subtitle">Operational Dashboard · Prompting · Voice Control</p>
-        <p class="subtitle small" id="active-tab-label">Active Section: Operations</p>
+        <h1>Hermes Control Center</h1>
       </div>
       <div class="clock-wrap">
-        <span id="header-role-badge" class="role-badge role-none">ROLE: --</span>
         <span id="header-datetime">--</span>
       </div>
     </header>
 
     <nav class="tabs" aria-label="Main sections" role="tablist">
       <button class="tab-btn active" data-tab="operations" role="tab" aria-selected="true">Operations</button>
-      <button class="tab-btn" data-tab="prompt-voice" role="tab" aria-selected="false">Prompt and Voice</button>
+      <button class="tab-btn" data-tab="prompt-voice" role="tab" aria-selected="false">Communications</button>
       <button class="tab-btn" data-tab="llm-wikis" role="tab" aria-selected="false">LLM Wikis</button>
     </nav>
 
@@ -221,9 +218,45 @@
         </section>
       </div>
 
-      <div class="layout tab-content" data-tab-section="llm-wikis">
+      <div class="layout tab-content llm-wikis-layout" data-tab-section="llm-wikis">
+        <aside class="card wiki-manager-sidebar" id="wiki-manager-sidebar">
+          <h2>Wiki Manager</h2>
+          <details open>
+            <summary>Selected Wiki Actions</summary>
+            <div class="wiki-sidebar-group">
+              <button id="wiki-refresh-btn" class="ghost">Refresh Wikis</button>
+              <button id="wiki-manager-load-selected" class="ghost">Load Selected to Editor</button>
+              <button id="wiki-manager-open-charter" class="ghost">Open Charter</button>
+              <button id="wiki-manager-ingest" class="ghost">Ingest Source</button>
+              <button id="wiki-manager-ask" class="ghost">Ask Wiki</button>
+              <button id="wiki-manager-lint" class="ghost">Lint Health</button>
+            </div>
+          </details>
+          <details>
+            <summary>Tile View</summary>
+            <div class="wiki-sidebar-group">
+              <label for="wiki-filter-select">Filter</label>
+              <select id="wiki-filter-select">
+                <option value="all">all</option>
+                <option value="stale-first">stale first</option>
+                <option value="missing-interview-first">missing charter notes first</option>
+                <option value="missing-path">missing path</option>
+              </select>
+            </div>
+          </details>
+          <div class="wiki-sidebar-bottom">
+            <button id="wiki-save-btn">Create Wiki Tile</button>
+            <button id="wiki-open-wizard" class="ghost">Open 6-Step Wizard</button>
+            <button id="wiki-clear-btn" class="ghost">Clear Editor</button>
+            <button id="wiki-show-help" class="ghost">Show Help</button>
+            <button id="wiki-show-summary" class="ghost">Show One-Page Summary</button>
+          </div>
+        </aside>
+
         <section class="card" id="llm-wikis-card">
-          <h2>LLM Wiki Manager</h2>
+          <h2>Wiki Editor + Charter Intake</h2>
+          <p id="wiki-editing" class="status small">Editing: new tile</p>
+          <p id="wiki-status" class="status">Login to manage LLM wikis.</p>
           <div class="settings-grid">
             <label for="wiki-subject-input">Subject</label>
             <input id="wiki-subject-input" type="text" placeholder="Biology" />
@@ -249,17 +282,26 @@
 
             <label for="wiki-notes-input">Notes</label>
             <textarea id="wiki-notes-input" rows="4" placeholder="Coverage notes, next ingestion targets, gaps..."></textarea>
+
+            <label for="wiki-interview-status">Charter Status</label>
+            <select id="wiki-interview-status">
+              <option value="pending">pending</option>
+              <option value="in_progress">in_progress</option>
+              <option value="completed">completed</option>
+            </select>
+
+            <label for="wiki-interview-content">Charter Markdown</label>
+            <textarea id="wiki-interview-content" rows="12" placeholder="# Wiki Charter & Intake Notes\n\nWizard-captured schema inputs + follow-up operating notes..."></textarea>
           </div>
           <div class="row">
-            <button id="wiki-save-btn">Create Wiki Tile</button>
-            <button id="wiki-open-wizard" class="ghost">Open 6-Step Wizard</button>
-            <button id="wiki-clear-btn" class="ghost">Clear Editor</button>
-            <button id="wiki-refresh-btn" class="ghost">Refresh Wikis</button>
-            <button id="wiki-show-help" class="ghost">Show Help</button>
-            <button id="wiki-show-summary" class="ghost">Show One-Page Summary</button>
+            <button id="wiki-interview-load" class="ghost">Load from selected tile</button>
+            <button id="wiki-interview-save">Save Charter</button>
+            <button id="wiki-interview-complete" class="ghost">Mark Complete</button>
+            <button id="wiki-schema-load" class="ghost">Open SCHEMA.md</button>
+            <button id="wiki-schema-save" class="ghost">Save SCHEMA.md</button>
           </div>
-          <p id="wiki-editing" class="status small">Editing: new tile</p>
-          <p id="wiki-status" class="status">Login to manage LLM wikis.</p>
+          <p id="wiki-interview-target" class="status small">No wiki selected.</p>
+          <p id="wiki-interview-status-msg" class="status">Select a wiki tile, then load charter notes.</p>
           <pre id="wiki-doc-viewer" class="status small">Wiki docs panel idle. Click "Show Help" or "Show One-Page Summary".</pre>
         </section>
 
@@ -410,43 +452,9 @@ last_result=n/a</pre>
         </section>
 
         <section class="card" id="llm-wikis-tiles-card">
-          <h2>Subject Wiki Tiles</h2>
-          <div class="row">
-            <label for="wiki-filter-select">Filter</label>
-            <select id="wiki-filter-select">
-              <option value="all">all</option>
-              <option value="stale-first">stale first</option>
-              <option value="missing-interview-first">missing charter notes first</option>
-              <option value="missing-path">missing path</option>
-            </select>
-          </div>
           <div id="llm-wikis-grid" class="wiki-grid">
             <p class="status small">No wikis loaded.</p>
           </div>
-        </section>
-
-        <section class="card" id="wiki-interview-card">
-          <h2>Wiki Charter & Intake Notes</h2>
-          <p id="wiki-interview-target" class="status small">No wiki selected.</p>
-          <div class="settings-grid">
-            <label for="wiki-interview-status">Charter Status</label>
-            <select id="wiki-interview-status">
-              <option value="pending">pending</option>
-              <option value="in_progress">in_progress</option>
-              <option value="completed">completed</option>
-            </select>
-
-            <label for="wiki-interview-content">Charter Markdown</label>
-            <textarea id="wiki-interview-content" rows="12" placeholder="# Wiki Charter & Intake Notes\n\nWizard-captured schema inputs + follow-up operating notes..."></textarea>
-          </div>
-          <div class="row">
-            <button id="wiki-interview-load" class="ghost">Load from selected tile</button>
-            <button id="wiki-interview-save">Save Charter</button>
-            <button id="wiki-interview-complete" class="ghost">Mark Complete</button>
-            <button id="wiki-schema-load" class="ghost">Open SCHEMA.md</button>
-            <button id="wiki-schema-save" class="ghost">Save SCHEMA.md</button>
-          </div>
-          <p id="wiki-interview-status-msg" class="status">Select a wiki tile, then load charter notes.</p>
         </section>
       </div>
     </main>
