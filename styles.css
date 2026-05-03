@@ -346,6 +346,7 @@ button.ghost {
 .wiki-manager-sidebar summary {
   cursor: pointer;
   font-weight: 600;
+  color: #d9e6ff;
 }
 
 .wiki-sidebar-group {
@@ -354,10 +355,28 @@ button.ghost {
   margin-top: 0.55rem;
 }
 
+.wiki-sidebar-group .status.small {
+  margin: 0;
+  line-height: 1.35;
+  color: #a8bfdc;
+}
+
+#wiki-manager-selected {
+  margin: 0;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #33436a;
+  border-radius: 8px;
+  background: #0a1020;
+}
+
 .wiki-sidebar-bottom {
   display: grid;
   gap: 0.45rem;
   margin-top: 0.25rem;
+}
+
+#wiki-open-wizard {
+  font-weight: 600;
 }
 
 #llm-wikis-card,
@@ -422,6 +441,10 @@ button.ghost {
   min-height: 240px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   line-height: 1.35;
+}
+
+#wiki-editor-shell {
+  margin-top: 0.6rem;
 }
 
 #wizard-artifacts {

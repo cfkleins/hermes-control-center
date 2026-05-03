@@ -222,18 +222,39 @@
         <aside class="card wiki-manager-sidebar" id="wiki-manager-sidebar">
           <h2>Wiki Manager</h2>
           <details open>
-            <summary>Selected Wiki Actions</summary>
+            <summary>Selection</summary>
+            <div class="wiki-sidebar-group">
+              <label for="wiki-manager-pick">Pick Wiki Tile</label>
+              <select id="wiki-manager-pick">
+                <option value="">-- Select wiki --</option>
+              </select>
+              <p id="wiki-manager-selected" class="status small">No wiki selected.</p>
+              <label for="wiki-action-model-select">Action Model</label>
+              <select id="wiki-action-model-select">
+                <option value="gpt-5.3-codex">gpt-5.3-codex</option>
+              </select>
+              <p class="status small">Model applies to LLM Wiki actions on this page only.</p>
+            </div>
+          </details>
+          <details open>
+            <summary>Actions (Schema → Ingest → Query → Lint)</summary>
             <div class="wiki-sidebar-group">
               <button id="wiki-refresh-btn" class="ghost">Refresh Wikis</button>
-              <button id="wiki-manager-load-selected" class="ghost">Load Selected to Editor</button>
-              <button id="wiki-manager-open-charter" class="ghost">Open Charter</button>
-              <button id="wiki-manager-ingest" class="ghost">Ingest Source</button>
-              <button id="wiki-manager-ask" class="ghost">Ask Wiki</button>
-              <button id="wiki-manager-lint" class="ghost">Lint Health</button>
+              <button id="wiki-manager-load-selected" class="ghost">Load Selected Context</button>
+              <button id="wiki-manager-open-charter" class="ghost">Schema (SCHEMA.md)</button>
+              <button id="wiki-manager-mark-indexed" class="ghost">Set Indexed Time (Now)</button>
+              <label for="wiki-manager-action">Action</label>
+              <select id="wiki-manager-action">
+                <option value="ingest">Ingest</option>
+                <option value="query">Query</option>
+                <option value="lint">Lint</option>
+              </select>
+              <button id="wiki-manager-run-action" class="ghost">Open Action</button>
+              <p class="status small">Refresh = reload tiles from backend. Open Action = open the selected workflow.</p>
             </div>
           </details>
           <details>
-            <summary>Tile View</summary>
+            <summary>Filter</summary>
             <div class="wiki-sidebar-group">
               <label for="wiki-filter-select">Filter</label>
               <select id="wiki-filter-select">
@@ -245,18 +266,20 @@
             </div>
           </details>
           <div class="wiki-sidebar-bottom">
-            <button id="wiki-save-btn">Create Wiki Tile</button>
-            <button id="wiki-open-wizard" class="ghost">Open 6-Step Wizard</button>
+            <button id="wiki-save-btn" class="ghost">Save Tile Details</button>
+            <button id="wiki-open-wizard">Create New</button>
             <button id="wiki-clear-btn" class="ghost">Clear Editor</button>
-            <button id="wiki-show-help" class="ghost">Show Help</button>
-            <button id="wiki-show-summary" class="ghost">Show One-Page Summary</button>
+            <button id="wiki-show-help" class="ghost">Help</button>
+            <button id="wiki-show-summary" class="ghost">Summary</button>
           </div>
         </aside>
 
         <section class="card" id="llm-wikis-card">
-          <h2>Wiki Editor + Charter Intake</h2>
+          <h2>Wiki Editor + Schema.md Intake</h2>
           <p id="wiki-editing" class="status small">Editing: new tile</p>
           <p id="wiki-status" class="status">Login to manage LLM wikis.</p>
+          <p id="wiki-editor-gate" class="status small">Select a wiki, then click “Load Selected Context” to load path + schema into this editor.</p>
+          <div id="wiki-editor-shell" class="hidden">
           <div class="settings-grid">
             <label for="wiki-subject-input">Subject</label>
             <input id="wiki-subject-input" type="text" placeholder="Biology" />
@@ -283,26 +306,27 @@
             <label for="wiki-notes-input">Notes</label>
             <textarea id="wiki-notes-input" rows="4" placeholder="Coverage notes, next ingestion targets, gaps..."></textarea>
 
-            <label for="wiki-interview-status">Charter Status</label>
+            <label for="wiki-interview-status">Schema Intake Status</label>
             <select id="wiki-interview-status">
               <option value="pending">pending</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
             </select>
 
-            <label for="wiki-interview-content">Charter Markdown</label>
-            <textarea id="wiki-interview-content" rows="12" placeholder="# Wiki Charter & Intake Notes\n\nWizard-captured schema inputs + follow-up operating notes..."></textarea>
+            <label for="wiki-interview-content">Schema Intake Notes (Markdown)</label>
+            <textarea id="wiki-interview-content" rows="12" placeholder="# Schema Intake Notes\n\nSchema-driving decisions + follow-up operating notes...\n\nPrimary schema lives in SCHEMA.md."></textarea>
           </div>
           <div class="row">
-            <button id="wiki-interview-load" class="ghost">Load from selected tile</button>
-            <button id="wiki-interview-save">Save Charter</button>
+            <button id="wiki-interview-load" class="ghost">Load Intake Notes</button>
+            <button id="wiki-interview-save">Save Intake Notes</button>
             <button id="wiki-interview-complete" class="ghost">Mark Complete</button>
-            <button id="wiki-schema-load" class="ghost">Open SCHEMA.md</button>
+            <button id="wiki-schema-load" class="ghost">Schema (SCHEMA.md)</button>
             <button id="wiki-schema-save" class="ghost">Save SCHEMA.md</button>
           </div>
           <p id="wiki-interview-target" class="status small">No wiki selected.</p>
-          <p id="wiki-interview-status-msg" class="status">Select a wiki tile, then load charter notes.</p>
-          <pre id="wiki-doc-viewer" class="status small">Wiki docs panel idle. Click "Show Help" or "Show One-Page Summary".</pre>
+          <p id="wiki-interview-status-msg" class="status">Select a wiki tile, then load schema intake notes.</p>
+          </div>
+          <pre id="wiki-doc-viewer" class="status small">Wiki docs panel idle. Click "Help" or "Summary".</pre>
         </section>
 
         <div id="wiki-wizard-backdrop" class="modal-backdrop hidden"></div>
@@ -314,7 +338,7 @@
             <h2 id="wiki-wizard-title" style="margin:0;">New Wiki Wizard (Karpathy Method)</h2>
             <button id="wiki-wizard-close" class="ghost">Close</button>
           </div>
-          <p class="status small">6-step flow: Scope → Path → Schema → Sources → Seeds → Initialize</p>
+          <p class="status small">Guided setup: Scope → Path → Schema → Sources → Seeds → Initialize</p>
           <p id="wizard-step-label" class="status small">Step 1/6 · Scope</p>
           <div class="settings-grid">
             <label for="wizard-subject-input">Subject</label>
