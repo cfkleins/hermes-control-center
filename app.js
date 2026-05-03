@@ -635,6 +635,17 @@ async function pruneWikiRepairReportArtifacts() {
   }
 }
 
+function renderRepairPolicyStatus(data, prefix = "Policy") {
+  if (!wikiLintPolicyStatusEl) return;
+  const policyLine = `${prefix}: ${data.enabled ? "enabled" : "disabled"} | cadence=${data.cadence} | keep_last=${data.keep_last}`;
+  const lastRunLine = `last_run_at=${data.last_run_at || "never"}`;
+  const nextDueLine = `next_due_at=${data.next_due_at || "n/a"}`;
+  const lastResult = data.last_result
+    ? `last_result=${JSON.stringify(data.last_result)}`
+    : "last_result=n/a";
+  wikiLintPolicyStatusEl.textContent = [policyLine, lastRunLine, nextDueLine, lastResult].join("\n");
+}
+
 async function loadRepairReportPolicy() {
   if (!selectedWikiId) return;
   const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/policy`);
@@ -642,7 +653,7 @@ async function loadRepairReportPolicy() {
   if (wikiLintPolicyEnabledInput) wikiLintPolicyEnabledInput.checked = Boolean(data.enabled);
   if (wikiLintPolicyCadenceSelect) wikiLintPolicyCadenceSelect.value = data.cadence || "daily";
   if (wikiLintRepairKeepLastInput) wikiLintRepairKeepLastInput.value = String(Number(data.keep_last || 10));
-  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = `Policy: ${data.enabled ? "enabled" : "disabled"} | cadence=${data.cadence} | keep_last=${data.keep_last}`;
+  renderRepairPolicyStatus(data);
 }
 
 async function saveRepairReportPolicy() {
@@ -656,7 +667,7 @@ async function saveRepairReportPolicy() {
   const keepLast = Number(wikiLintRepairKeepLastInput?.value || 10);
   const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/policy?enabled=${enabled ? "true" : "false"}&cadence=${encodeURIComponent(cadence)}&keep_last=${Number.isFinite(keepLast) ? keepLast : 10}`, { method: "PUT" });
   const data = await res.json();
-  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = `Policy saved: ${data.enabled ? "enabled" : "disabled"} | cadence=${data.cadence} | keep_last=${data.keep_last}`;
+  renderRepairPolicyStatus(data, "Policy saved");
   await loadTimeline();
 }
 
@@ -668,7 +679,12 @@ async function runRepairReportPolicyNow() {
   }
   const res = await authFetch(`/api/llm-wikis/${selectedWikiId}/lint/repair-report/policy/run?force=true`, { method: "POST" });
   const data = await res.json();
-  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = data.ran ? `Policy run complete. Deleted ${(data.result?.deleted || []).length}.` : `Policy did not run (${data.reason || "unknown"}).`;
+  if (data.ran) {
+    const deletedCount = (data.result?.deleted || []).length;
+    renderRepairPolicyStatus(data.policy || {}, `Policy run complete (deleted ${deletedCount})`);
+  } else {
+    if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = `Policy did not run (${data.reason || "unknown"}).`;
+  }
   await browseWikiRepairReports();
   await loadTimeline();
 }
@@ -680,9 +696,18 @@ async function runRepairReportPolicyTickNow() {
   }
   const res = await authFetch(`/api/llm-wikis/lint/repair-report/policy/tick?force=false`, { method: "POST" });
   const data = await res.json();
-  if (wikiLintPolicyStatusEl) wikiLintPolicyStatusEl.textContent = `Scheduler tick complete. Ran ${data.run_count || 0} wiki policies.`;
+  const touched = Array.isArray(data.runs) ? data.runs.find((r) => Number(r.wiki_id) === Number(selectedWikiId) && r.policy) : null;
+  if (touched?.policy) {
+    const prefix = touched.ran
+      ? `Scheduler tick complete (ran ${data.run_count || 0} total; selected wiki ran)`
+      : `Scheduler tick complete (ran ${data.run_count || 0} total; selected wiki ${touched.reason || "skipped"})`;
+    renderRepairPolicyStatus(touched.policy, prefix);
+  } else if (wikiLintPolicyStatusEl) {
+    wikiLintPolicyStatusEl.textContent = `Scheduler tick complete. Ran ${data.run_count || 0} wiki policies.`;
+  }
   await browseWikiRepairReports();
   await loadTimeline();
+  await loadRepairReportPolicy();
 }
 
 function isWizardModalOpen() {

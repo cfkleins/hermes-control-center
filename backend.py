@@ -1501,6 +1501,14 @@ def _policy_due(last_run_at: str | None, cadence: str, now: datetime) -> bool:
     return delta >= timedelta(days=1)
 
 
+def _policy_next_due_at(last_run_at: str | None, cadence: str) -> str | None:
+    last = _parse_iso_dt(last_run_at)
+    if last is None:
+        return None
+    interval = timedelta(days=7) if cadence == "weekly" else timedelta(days=1)
+    return (last + interval).isoformat()
+
+
 def _get_repair_report_policy(username: str, wiki_id: int) -> dict:
     wiki = _find_wiki(username, wiki_id)
     all_policies = _load_repair_policies()
@@ -1510,6 +1518,7 @@ def _get_repair_report_policy(username: str, wiki_id: int) -> dict:
     cadence = str(raw.get("cadence", "daily"))
     if cadence not in {"daily", "weekly"}:
         cadence = "daily"
+    last_run_at = raw.get("last_run_at")
     return {
         "wiki_id": wiki_id,
         "subject": wiki.get("subject"),
@@ -1517,7 +1526,9 @@ def _get_repair_report_policy(username: str, wiki_id: int) -> dict:
         "keep_last": keep_last,
         "cadence": cadence,
         "updated_at": raw.get("updated_at"),
-        "last_run_at": raw.get("last_run_at"),
+        "last_run_at": last_run_at,
+        "next_due_at": _policy_next_due_at(last_run_at, cadence),
+        "last_result": raw.get("last_result"),
     }
 
 
@@ -1534,6 +1545,7 @@ def _set_repair_report_policy(username: str, wiki_id: int, enabled: bool, keep_l
         "cadence": cadence,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "last_run_at": existing.get("last_run_at"),
+        "last_result": existing.get("last_result"),
     }
     all_policies.setdefault("wikis", {})[str(wiki_id)] = normalized
     _save_repair_policies(all_policies)
@@ -1547,9 +1559,16 @@ def _run_repair_report_policy(username: str, wiki_id: int, force: bool = False) 
     if not policy.get("enabled") and not force:
         return {"wiki_id": wiki_id, "ran": False, "reason": "policy_disabled", "policy": policy}
     result = _prune_repair_report_artifacts(username, wiki_id, keep_last=int(policy.get("keep_last", 10)))
+    now_iso = datetime.now(timezone.utc).isoformat()
     all_policies = _load_repair_policies()
     entry = all_policies.setdefault("wikis", {}).setdefault(str(wiki_id), {})
-    entry["last_run_at"] = datetime.now(timezone.utc).isoformat()
+    entry["last_run_at"] = now_iso
+    entry["last_result"] = {
+        "at": now_iso,
+        "status": "ran",
+        "deleted_count": len((result or {}).get("deleted", [])),
+        "remaining": (result or {}).get("remaining"),
+    }
     _save_repair_policies(all_policies)
     updated_policy = _get_repair_report_policy(username, wiki_id)
     return {"wiki_id": wiki_id, "ran": True, "policy": updated_policy, "result": result}
@@ -1567,14 +1586,33 @@ def _run_repair_report_policy_tick(username: str, force: bool = False) -> dict:
             continue
         policy = _get_repair_report_policy(username, wiki_id)
         if not policy.get("enabled") and not force:
-            runs.append({"wiki_id": wiki_id, "subject": wiki.get("subject"), "ran": False, "reason": "policy_disabled"})
+            runs.append({
+                "wiki_id": wiki_id,
+                "subject": wiki.get("subject"),
+                "ran": False,
+                "reason": "policy_disabled",
+                "policy": policy,
+            })
             continue
         due = _policy_due(policy.get("last_run_at"), str(policy.get("cadence") or "daily"), now)
         if not due and not force:
-            runs.append({"wiki_id": wiki_id, "subject": wiki.get("subject"), "ran": False, "reason": "not_due"})
+            runs.append({
+                "wiki_id": wiki_id,
+                "subject": wiki.get("subject"),
+                "ran": False,
+                "reason": "not_due",
+                "policy": policy,
+            })
             continue
         outcome = _run_repair_report_policy(username, wiki_id, force=True)
-        runs.append({"wiki_id": wiki_id, "subject": wiki.get("subject"), "ran": True, "deleted": len((outcome.get("result") or {}).get("deleted", []))})
+        updated_policy = outcome.get("policy") or _get_repair_report_policy(username, wiki_id)
+        runs.append({
+            "wiki_id": wiki_id,
+            "subject": wiki.get("subject"),
+            "ran": True,
+            "deleted": len((outcome.get("result") or {}).get("deleted", [])),
+            "policy": updated_policy,
+        })
 
     _add_timeline_event(username, "wiki", "Repair policy scheduler tick", {"force": bool(force), "runs": runs})
     return {"force": bool(force), "run_count": sum(1 for r in runs if r.get("ran")), "runs": runs}
